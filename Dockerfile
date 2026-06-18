@@ -28,6 +28,16 @@ RUN useradd --create-home appuser
 USER appuser
 WORKDIR /home/appuser/app
 
+# Pre-create the data dir (owned by appuser) BEFORE the named volume mounts onto
+# it. Docker copies an EMPTY named volume's ownership from the image directory it
+# mounts over; if that directory doesn't exist in the image, Docker creates the
+# mountpoint as root:root and the app — running as appuser — can't write its
+# cache/logs/memory. That is the "[Errno 13] Permission denied:
+# /home/appuser/.tradingagents/cache" reported in issue #46.
+RUN mkdir -p /home/appuser/.tradingagents/cache \
+             /home/appuser/.tradingagents/logs \
+             /home/appuser/.tradingagents/memory
+
 COPY --from=builder --chown=appuser:appuser /build .
 
 ENTRYPOINT ["tradingagents"]

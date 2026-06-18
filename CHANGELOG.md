@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [0.2.14] — 2026-06-18
+
+### 修复
+
+- **Docker 命名卷权限崩溃（#46，感谢 @tyraanTao 等报告）**：`docker compose up` 后容器内进程以
+  `appuser` 运行，但 `docker-compose.yml` 的命名卷 `tradingagents_data` 挂到
+  `/home/appuser/.tradingagents` 时，由于镜像里没有预建该目录，Docker 把挂载点建成了
+  `root:root`，导致应用写缓存被拒：`[Errno 13] Permission denied: /home/appuser/.tradingagents/cache`。
+  Dockerfile 现在在 `USER appuser` 之后**预建** `/home/appuser/.tradingagents`（含 `cache` /
+  `logs` / `memory` 三个子目录）——Docker 对空命名卷会继承镜像挂载点目录的属主，于是卷归属 appuser，
+  容器可正常写入。
+  - 升级：`git pull` 后 `docker compose build --no-cache` 重建镜像；旧数据卷可先
+    `docker run --rm -v tradingagents_data:/d alpine chown -R 1000:1000 /d` 修正属主，
+    或 `docker volume rm tradingagents_data` 后重建。
+
+### 说明
+
+- 仅 Dockerfile 改动（预建数据目录），Python 代码 / 数据层 / Agent 逻辑零改动。
+- 同批排查的 #59（PDF `latin-1` 崩溃）与 #66（`OPENAI_API_KEY` 报错）经复现确认已分别在
+  v0.2.12 修复（`_ensure_fpdf2()` 守卫 + Markdown 兜底 / 各供应商独立 Key 提示），升级即可，无需改动。
+
 ## [0.2.13] — 2026-06-04
 
 ### Security
