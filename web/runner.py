@@ -8,16 +8,8 @@ import traceback
 from typing import Any
 
 from web.history import clear_incomplete_task, record_incomplete_task
-from web.progress import PIPELINE_STAGES, ProgressTracker
+from web.progress import build_pipeline_stages, ProgressTracker
 from web.stock_display import normalize_report_state_mentions, normalize_stock_mentions
-
-
-_REPORT_KEY_TO_STAGE = {s["report_key"]: s["id"] for s in PIPELINE_STAGES}
-
-_ANALYST_REPORT_KEYS = [
-    "market_report", "sentiment_report", "news_report",
-    "fundamentals_report", "policy_report", "hot_money_report", "lockup_report",
-]
 
 
 def _discard_stopped_run(
@@ -44,12 +36,20 @@ def _detect_completed_stages(
     tracker: ProgressTracker,
 ) -> None:
     """Check the streamed chunk for newly completed stages."""
-    for report_key in _ANALYST_REPORT_KEYS:
-        stage_id = _REPORT_KEY_TO_STAGE[report_key]
+    # report_key -> stage_id for THIS run's stages (dynamic analyst subset).
+    report_key_to_stage = {s["report_key"]: s["id"] for s in tracker.stages}
+
+    # Analyst stages: mark done when their report field shows up.
+    analyst_stage_ids = {s["id"] for s in tracker.stages if s["id"] not in
+                         ("quality_gate", "debate", "trader", "risk", "pm")}
+    for stage in tracker.stages:
+        if stage["id"] not in analyst_stage_ids:
+            continue
+        report_key = stage["report_key"]
         content = chunk.get(report_key, "")
-        if content and tracker.stage_status(stage_id) != "done":
+        if content and tracker.stage_status(stage["id"]) != "done":
             report = normalize_stock_mentions(str(content), tracker.ticker, chunk)
-            tracker.mark_stage_done(stage_id, _strip_think_tags(report))
+            tracker.mark_stage_done(stage["id"], _strip_think_tags(report))
 
     dqs = chunk.get("data_quality_summary", "")
     if dqs and tracker.stage_status("quality_gate") != "done":
@@ -80,21 +80,25 @@ def _detect_completed_stages(
 
 def _infer_active_stage(tracker: ProgressTracker) -> None:
     """Set the current_stage to the first non-completed stage."""
-    from web.progress import STAGE_IDS
-    for sid in STAGE_IDS:
-        if tracker.stage_status(sid) == "pending":
-            tracker.mark_stage_active(sid)
+    for stage in tracker.stages:
+        if tracker.stage_status(stage["id"]) == "pending":
+            tracker.mark_stage_active(stage["id"])
             return
 
 
-def _run(ticker: str, trade_date: str, config: dict, tracker: ProgressTracker) -> None:
+def _run(ticker: str, trade_date: str, config: dict, tracker: ProgressTracker, selected_analysts: list[str] | None) -> None:
     """Execute the full pipeline in the current thread."""
     from cli.stats_handler import StatsCallbackHandler
     from tradingagents.graph.trading_graph import TradingAgentsGraph
 
+    # Fix the progress panel's stage list to this run's analyst selection so
+    # deselected analysts neither show as pending nor get marked failed.
+    tracker.stages = build_pipeline_stages(selected_analysts)
+
     stats = StatsCallbackHandler()
 
     graph = TradingAgentsGraph(
+        selected_analysts=selected_analysts,
         debug=True,
         config=config,
         callbacks=[stats],
@@ -171,12 +175,16 @@ def run_analysis_in_thread(
     trade_date: str,
     config: dict,
     tracker: ProgressTracker,
+    selected_analysts: list[str] | None = None,
 ) -> threading.Thread:
     """Launch the pipeline in a daemon thread. Returns the thread handle."""
     tracker.ticker = ticker
     tracker.trade_date = trade_date
     tracker.is_running = True
-    tracker.mark_stage_active("market")
+    tracker.stages = build_pipeline_stages(selected_analysts)
+    # Activate the first analyst stage of this run (may not be "market").
+    first_stage_id = tracker.stages[0]["id"] if tracker.stages else "market"
+    tracker.mark_stage_active(first_stage_id)
     record_incomplete_task(
         ticker,
         trade_date,
@@ -186,7 +194,7 @@ def run_analysis_in_thread(
 
     def _target() -> None:
         try:
-            _run(ticker, trade_date, config, tracker)
+            _run(ticker, trade_date, config, tracker, selected_analysts)
         except Exception as exc:
             if tracker.stop_requested:
                 try:

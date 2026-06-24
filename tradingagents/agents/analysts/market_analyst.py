@@ -1,9 +1,11 @@
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_indicators,
     get_language_instruction,
     get_stock_data,
+    run_react_loop,
 )
 from tradingagents.dataflows.config import get_config
 
@@ -92,15 +94,10 @@ MACD 类：
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
-
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
+        initial_msg = HumanMessage(content=state["company_of_interest"])
+        report = run_react_loop(chain, tools, initial_msg, max_iterations=10)
 
         return {
-            "messages": [result],
             "market_report": report,
         }
 

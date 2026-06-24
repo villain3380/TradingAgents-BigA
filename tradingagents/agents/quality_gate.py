@@ -1,24 +1,6 @@
 from typing import Annotated
 
-REPORT_FIELDS = {
-    "market": "market_report",
-    "social": "sentiment_report",
-    "news": "news_report",
-    "fundamentals": "fundamentals_report",
-    "policy": "policy_report",
-    "hot_money": "hot_money_report",
-    "lockup": "lockup_report",
-}
-
-ANALYST_NAMES = {
-    "market": "技术分析师",
-    "social": "情绪分析师",
-    "news": "新闻分析师",
-    "fundamentals": "基本面分析师",
-    "policy": "政策分析师",
-    "hot_money": "游资追踪师",
-    "lockup": "解禁监控师",
-}
+from tradingagents.agents.analysts.registry import AnalystSpec
 
 MIN_REPORT_LENGTH = 200
 
@@ -65,22 +47,23 @@ def _hard_check_report(analyst_type: str, report: str) -> tuple:
 
 
 def _build_review_prompt(
-    reports: dict, trade_date: str, ticker: str
+    active: list[AnalystSpec], reports: dict, trade_date: str, ticker: str
 ) -> str:
-    """Build the LLM review prompt."""
+    """Build the LLM review prompt, dynamically covering only active analysts."""
     report_sections = []
-    for analyst_type, field in REPORT_FIELDS.items():
-        name = ANALYST_NAMES[analyst_type]
-        content = reports.get(field, "（未运行）")
-        if not content:
-            content = "（报告为空）"
+    for spec in active:
+        content = reports.get(spec.report_field, "") or "（报告为空）"
         if len(content) > 3000:
             content = content[:3000] + "\n... (truncated for review)"
-        report_sections.append(f"### {name} ({analyst_type})\n{content}")
+        report_sections.append(f"### {spec.label} ({spec.key})\n{content}")
 
     all_reports = "\n\n".join(report_sections)
+    analyst_count = len(active)
 
-    return f"""你是数据质量审核员。以下是 7 位分析师对 {ticker} 在 {trade_date} 的研究报告。请逐一审核。
+    # Build one example row per active analyst so the LLM mirrors the selection.
+    table_rows = "\n".join(f"| {spec.label} | ... | ... | ... | ... |" for spec in active)
+
+    return f"""你是数据质量审核员。以下是 {analyst_count} 位分析师对 {ticker} 在 {trade_date} 的研究报告。请逐一审核。
 
 {all_reports}
 
@@ -94,13 +77,7 @@ def _build_review_prompt(
 
 | 分析师 | 评级 | 数据时效 | 缺失项 | 备注 |
 |--------|------|----------|--------|------|
-| 技术分析师 | A/B/C/D/F | 是否匹配交易日 | 列出缺失的必采项 | 简要说明 |
-| 情绪分析师 | ... | ... | ... | ... |
-| 新闻分析师 | ... | ... | ... | ... |
-| 基本面分析师 | ... | ... | ... | ... |
-| 政策分析师 | ... | ... | ... | ... |
-| 游资追踪师 | ... | ... | ... | ... |
-| 解禁监控师 | ... | ... | ... | ... |
+{table_rows}
 
 **整体评级**: A/B/C/D/F
 **数据可信度**: 高/中/低
@@ -115,10 +92,13 @@ def _build_review_prompt(
 """
 
 
-def create_quality_gate(llm):
+def create_quality_gate(llm, active: list[AnalystSpec]):
     """Factory for the data quality gate node.
 
-    Sits between the last analyst Msg Clear and Bull Researcher.
+    Sits between the parallel analyst fan-in and Bull Researcher. Only the
+    ``active`` analysts (the selected subset) are graded — deselected analysts
+    are not run and must not be penalised as failures.
+
     Layer 1: hard checks (code). Layer 2: LLM review (one call).
     Writes data_quality_summary to state for downstream consumers.
     """
@@ -127,29 +107,27 @@ def create_quality_gate(llm):
         trade_date = state["trade_date"]
         ticker = state["company_of_interest"]
 
-        reports = {}
-        for analyst_type, field in REPORT_FIELDS.items():
-            reports[field] = state.get(field, "")
+        reports = {spec.report_field: state.get(spec.report_field, "") for spec in active}
 
         hard_results = {}
-        for analyst_type, field in REPORT_FIELDS.items():
-            grade, detail = _hard_check_report(analyst_type, reports[field])
-            hard_results[analyst_type] = (grade, detail)
+        for spec in active:
+            grade, detail = _hard_check_report(spec.key, reports[spec.report_field])
+            hard_results[spec.key] = (grade, detail)
 
         hard_summary_lines = []
-        for analyst_type, (grade, detail) in hard_results.items():
-            name = ANALYST_NAMES[analyst_type]
-            hard_summary_lines.append(f"- {name}: [{grade}] {detail}")
+        for spec in active:
+            grade, detail = hard_results[spec.key]
+            hard_summary_lines.append(f"- {spec.label}: [{grade}] {detail}")
         hard_summary = "\n".join(hard_summary_lines)
 
-        fail_count = sum(
-            1 for _, (g, _) in hard_results.items() if g in ("F", "D")
-        )
+        fail_count = sum(1 for _, (g, _) in hard_results.items() if g in ("F", "D"))
 
         llm_review = ""
-        if fail_count < 4:
+        # Skip the LLM pass when too many active reports already failed hard
+        # checks (scaled threshold: >half of the active set).
+        if fail_count < max(2, len(active) // 2 + 1):
             try:
-                review_prompt = _build_review_prompt(reports, trade_date, ticker)
+                review_prompt = _build_review_prompt(active, reports, trade_date, ticker)
                 response = llm.invoke(review_prompt)
                 llm_review = response.content
             except Exception as e:

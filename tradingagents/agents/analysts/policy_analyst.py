@@ -1,9 +1,11 @@
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_global_news,
     get_language_instruction,
     get_news,
+    run_react_loop,
 )
 from tradingagents.dataflows.config import get_config
 
@@ -70,15 +72,11 @@ def create_policy_analyst(llm):
         prompt = prompt.partial(instrument_context=instrument_context)
 
         chain = prompt | llm.bind_tools(tools)
-        result = chain.invoke(state["messages"])
 
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
+        initial_msg = HumanMessage(content=state["company_of_interest"])
+        report = run_react_loop(chain, tools, initial_msg, max_iterations=10)
 
         return {
-            "messages": [result],
             "policy_report": report,
         }
 

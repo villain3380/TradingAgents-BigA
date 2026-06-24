@@ -209,6 +209,7 @@ if start_req:
         trade_date=start_req["trade_date"],
         config=_build_config(),
         tracker=tracker,
+        selected_analysts=st.session_state.get("selected_analysts"),
     )
 
 

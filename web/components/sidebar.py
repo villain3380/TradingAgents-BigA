@@ -8,6 +8,7 @@ import streamlit as st
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.checkpointer import clear_checkpoint
+from tradingagents.agents.analysts.registry import ANALYST_REGISTRY, DEFAULT_SELECTED
 from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
 from web.history import (
     clear_incomplete_task,
@@ -130,6 +131,31 @@ def _render_analysis_controls(raw_ticker: str, trade_date_value: date) -> None:
         st.caption("正在停止并清空，收尾完成后可重新开始。")
 
 
+def _render_analyst_selector() -> None:
+    """Render a multiselect for which analyst roles to run.
+
+    Driven entirely by the analyst registry, so newly added analysts appear
+    here automatically. The selection flows through to the graph as
+    ``selected_analysts`` and to the progress panel as the active stage set.
+    """
+    with st.expander("🧩 分析师选择", expanded=False):
+        options = {s.key: f"{s.icon} {s.label}" for s in ANALYST_REGISTRY}
+        default = [k for k in DEFAULT_SELECTED if k in options]
+        # The multiselect writes its value to st.session_state["selected_analysts"]
+        # automatically via the key= arg — do NOT assign that key by hand after
+        # the widget exists (Streamlit raises StreamlitAPIException).
+        chosen = st.multiselect(
+            "启用的分析师（并行执行）",
+            options=list(options.keys()),
+            default=default,
+            format_func=lambda k: options[k],
+            key="selected_analysts",
+            help="勾选的分析师将并行运行；未勾选的不执行、不评分、不出现在进度面板。未来新增的交叉验证数据源也会出现在此处。",
+        )
+        if not chosen:
+            st.warning("至少需要启用一个分析师。")
+
+
 def _render_llm_config() -> None:
     """Render LLM provider and model selection controls."""
 
@@ -227,6 +253,8 @@ def render_sidebar() -> None:
 
     with st.expander("⚙️ 模型配置", expanded=False):
         _render_llm_config()
+
+    _render_analyst_selector()
 
     tracker = st.session_state.get("tracker")
     is_busy = tracker is not None and tracker.is_running

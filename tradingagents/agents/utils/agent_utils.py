@@ -1,4 +1,4 @@
-from langchain_core.messages import HumanMessage, RemoveMessage
+from langchain_core.messages import HumanMessage, RemoveMessage, ToolMessage
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import (
@@ -51,6 +51,36 @@ def build_instrument_context(ticker: str) -> str:
         "Use this exact ticker in every tool call, report, and recommendation, "
         "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`)."
     )
+
+
+def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> str:
+    """Self-contained ReAct tool-calling loop that stays inside one graph node.
+
+    Runs ``chain`` (a ``prompt | llm.bind_tools(tools)``) against a *local*
+    message list, executing any tool calls inline until the model stops
+    requesting tools (or ``max_iterations`` is hit). The report string is
+    returned; the local messages are discarded and never written back to
+    ``state["messages"]``.
+
+    This is what lets analysts run in parallel: each analyst's tool-call
+    history is isolated to a local list, so concurrent analysts don't pollute
+    the shared ``messages`` channel. It also removes the need for the old
+    per-analyst ``ToolNode`` + conditional-edge + ``Msg Clear`` graph machinery.
+    """
+    local_messages = [initial_message]
+    tool_map = {t.name: t for t in tools}
+    result = None
+    for _ in range(max_iterations):
+        result = chain.invoke(local_messages)
+        if not result.tool_calls:
+            return result.content
+        local_messages.append(result)
+        for tc in result.tool_calls:
+            output = tool_map[tc["name"]].invoke(tc["args"])
+            local_messages.append(
+                ToolMessage(content=str(output), tool_call_id=tc["id"])
+            )
+    return getattr(result, "content", "") or "分析未完成（达到最大迭代次数）"
 
 def create_msg_delete():
     def delete_messages(state):

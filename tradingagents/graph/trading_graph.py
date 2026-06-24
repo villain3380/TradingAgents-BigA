@@ -11,12 +11,11 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-from langgraph.prebuilt import ToolNode
-
 from tradingagents.llm_clients import create_llm_client
 
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.agents.analysts.registry import ANALYST_REGISTRY
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.agents.utils.agent_states import (
@@ -25,27 +24,6 @@ from tradingagents.agents.utils.agent_states import (
     RiskDebateState,
 )
 from tradingagents.dataflows.config import set_config
-
-# Import the new abstract tool methods from agent_utils
-from tradingagents.agents.utils.agent_utils import (
-    get_stock_data,
-    get_indicators,
-    get_fundamentals,
-    get_balance_sheet,
-    get_cashflow,
-    get_income_statement,
-    get_news,
-    get_insider_transactions,
-    get_global_news,
-    get_profit_forecast,
-    get_hot_stocks,
-    get_northbound_flow,
-    get_concept_blocks,
-    get_fund_flow,
-    get_dragon_tiger_board,
-    get_lockup_expiry,
-    get_industry_comparison,
-)
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
@@ -106,11 +84,8 @@ class TradingAgentsGraph:
 
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
-        
-        self.memory_log = TradingMemoryLog(self.config)
 
-        # Create tool nodes
-        self.tool_nodes = self._create_tool_nodes()
+        self.memory_log = TradingMemoryLog(self.config)
 
         # Initialize components
         self.conditional_logic = ConditionalLogic(
@@ -120,7 +95,6 @@ class TradingAgentsGraph:
         self.graph_setup = GraphSetup(
             self.quick_thinking_llm,
             self.deep_thinking_llm,
-            self.tool_nodes,
             self.conditional_logic,
         )
 
@@ -159,70 +133,6 @@ class TradingAgentsGraph:
                 kwargs["effort"] = effort
 
         return kwargs
-
-    def _create_tool_nodes(self) -> Dict[str, ToolNode]:
-        """Create tool nodes for different data sources using abstract methods."""
-        return {
-            "market": ToolNode(
-                [
-                    # Core stock data tools
-                    get_stock_data,
-                    # Technical indicators
-                    get_indicators,
-                ]
-            ),
-            "social": ToolNode(
-                [
-                    # News tools for social media analysis
-                    get_news,
-                ]
-            ),
-            "news": ToolNode(
-                [
-                    # News and insider information
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                ]
-            ),
-            "fundamentals": ToolNode(
-                [
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
-                    get_profit_forecast,
-                    get_industry_comparison,
-                ]
-            ),
-            "policy": ToolNode(
-                [
-                    get_news,
-                    get_global_news,
-                ]
-            ),
-            "hot_money": ToolNode(
-                [
-                    get_stock_data,
-                    get_news,
-                    get_insider_transactions,
-                    get_hot_stocks,
-                    get_northbound_flow,
-                    get_concept_blocks,
-                    get_fund_flow,
-                    get_dragon_tiger_board,
-                    get_industry_comparison,
-                ]
-            ),
-            "lockup": ToolNode(
-                [
-                    get_insider_transactions,
-                    get_news,
-                    get_fundamentals,
-                    get_lockup_expiry,
-                ]
-            ),
-        }
 
     def _fetch_returns(
         self, ticker: str, trade_date: str, holding_days: int = 5
@@ -401,14 +311,17 @@ class TradingAgentsGraph:
 
         try:
             if self.debug:
-                trace = []
+                final_state = None
                 for chunk in self.graph.stream(init_agent_state, **args):
-                    if len(chunk["messages"]) == 0:
-                        pass
-                    else:
-                        chunk["messages"][-1].pretty_print()
-                        trace.append(chunk)
-                final_state = trace[-1]
+                    final_state = chunk
+                    # Analyst nodes no longer write to ``messages`` (they run a
+                    # self-contained ReAct loop); only debate/trader/risk/PM
+                    # stages do. Print whatever the latest message is, if any.
+                    msgs = chunk.get("messages") or []
+                    if msgs:
+                        msgs[-1].pretty_print()
+                if final_state is None:
+                    raise RuntimeError("分析没有返回任何结果。")
             else:
                 final_state = self.graph.invoke(init_agent_state, **args)
 
@@ -419,16 +332,17 @@ class TradingAgentsGraph:
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
-        self.log_states_dict[str(trade_date)] = {
+        # Analyst reports: read dynamically from the registry so deselected
+        # analysts (whose fields stay "") don't cause KeyError, and any future
+        # analyst is logged automatically.
+        reports = {
+            spec.report_field: final_state.get(spec.report_field, "")
+            for spec in ANALYST_REGISTRY
+        }
+        log_entry = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
-            "policy_report": final_state.get("policy_report", ""),
-            "hot_money_report": final_state.get("hot_money_report", ""),
-            "lockup_report": final_state.get("lockup_report", ""),
+            **reports,
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],
@@ -451,6 +365,7 @@ class TradingAgentsGraph:
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
         }
+        self.log_states_dict[str(trade_date)] = log_entry
 
         # Save to file. Reject ticker values that would escape the
         # results directory when joined as a path component.

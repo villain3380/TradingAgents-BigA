@@ -7,15 +7,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from tradingagents.agents.analysts.registry import ANALYST_REGISTRY, resolve_selected
 
-PIPELINE_STAGES: list[dict[str, str]] = [
-    {"id": "market", "name": "技术分析", "icon": "📊", "report_key": "market_report"},
-    {"id": "social", "name": "情绪分析", "icon": "💬", "report_key": "sentiment_report"},
-    {"id": "news", "name": "新闻舆情", "icon": "📰", "report_key": "news_report"},
-    {"id": "fundamentals", "name": "基本面", "icon": "📋", "report_key": "fundamentals_report"},
-    {"id": "policy", "name": "政策分析", "icon": "🏛️", "report_key": "policy_report"},
-    {"id": "hot_money", "name": "游资追踪", "icon": "🔥", "report_key": "hot_money_report"},
-    {"id": "lockup", "name": "解禁监控", "icon": "🔒", "report_key": "lockup_report"},
+
+# Downstream (non-analyst) pipeline stages — fixed regardless of selection.
+_POST_STAGES: list[dict[str, str]] = [
     {"id": "quality_gate", "name": "质量门控", "icon": "✅", "report_key": "data_quality_summary"},
     {"id": "debate", "name": "多空辩论", "icon": "⚔️", "report_key": "investment_plan"},
     {"id": "trader", "name": "交易决策", "icon": "💹", "report_key": "trader_investment_plan"},
@@ -23,6 +19,24 @@ PIPELINE_STAGES: list[dict[str, str]] = [
     {"id": "pm", "name": "最终决策", "icon": "👔", "report_key": "final_trade_decision"},
 ]
 
+
+def _analyst_stage(spec) -> dict[str, str]:
+    return {"id": spec.key, "name": spec.label, "icon": spec.icon, "report_key": spec.report_field}
+
+
+def build_pipeline_stages(selected: list[str] | None = None) -> list[dict[str, str]]:
+    """Build the stage list for the progress panel given the selected analysts.
+
+    Analyst stages are generated from the registry (only the selected ones),
+    followed by the fixed downstream stages. This keeps the panel in sync with
+    the pluggable analyst set without hardcoding the seven analysts.
+    """
+    analyst_stages = [_analyst_stage(s) for s in resolve_selected(selected)]
+    return analyst_stages + list(_POST_STAGES)
+
+
+# Full default pipeline (all analysts) — kept for backward compatibility.
+PIPELINE_STAGES: list[dict[str, str]] = build_pipeline_stages(None)
 STAGE_IDS = [s["id"] for s in PIPELINE_STAGES]
 
 
@@ -43,6 +57,11 @@ class ProgressTracker:
     current_stage: str = ""
     completed_stages: list[str] = field(default_factory=list)
     stage_reports: dict[str, str] = field(default_factory=dict)
+    # Active pipeline stages for THIS run (analyst subset + downstream).
+    # Set by the runner from build_pipeline_stages(selected_analysts); the UI
+    # reads this instead of the global PIPELINE_STAGES so deselected analysts
+    # don't show up as pending/failed.
+    stages: list[dict[str, str]] = field(default_factory=lambda: list(PIPELINE_STAGES))
 
     final_state: dict[str, Any] = field(default_factory=dict)
     signal: str = ""
