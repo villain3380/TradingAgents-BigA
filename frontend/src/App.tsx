@@ -4,6 +4,7 @@ import { listAnalysts, listProviders } from "./api/client";
 import type { AnalystMeta, LlmConfig, ProviderInfo } from "./api/types";
 import { Controls } from "./components/Controls";
 import { Sidebar } from "./components/Sidebar";
+import { StatusPanel } from "./components/StatusPanel";
 import { RightRail } from "./components/RightRail";
 import { AnalystGrid } from "./components/AnalystGrid";
 import { CardModal } from "./components/CardModal";
@@ -48,14 +49,22 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar
-        config={llmConfig}
-        onChange={setLlmConfig}
-        providers={providers}
-        defaultProvider={defaultProvider}
-        onReload={reloadProviders}
-        disabled={state.running}
-      />
+      <div className="left-rail">
+        <Sidebar
+          config={llmConfig}
+          onChange={setLlmConfig}
+          providers={providers}
+          defaultProvider={defaultProvider}
+          onReload={reloadProviders}
+          disabled={state.running}
+        />
+        <StatusPanel
+          stats={state.stats}
+          postStages={state.postStages}
+          signal={state.signal}
+          runId={runId}
+        />
+      </div>
 
       <main className="app-main">
         <header className="app-header">
@@ -75,7 +84,7 @@ export default function App() {
         {state.cards.length > 0 && <AnalystGrid cards={state.cards} onExpand={setExpandedKey} />}
       </main>
 
-      <RightRail state={state} runId={runId} />
+      <RightRail cards={state.cards} />
 
       <CardModal
         card={state.cards.find((c) => c.key === expandedKey)}

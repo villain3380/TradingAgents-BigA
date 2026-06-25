@@ -48,7 +48,7 @@ export function useAnalysisStream() {
         });
         es.addEventListener("tool", (e) => {
           const d = JSON.parse((e as MessageEvent).data);
-          dispatch({ type: "tool", agent_id: d.agent_id, tool: d.tool, toolType: d.type });
+          dispatch({ type: "tool", agent_id: d.agent_id, tool: d.tool, toolType: d.type, sources: d.sources });
         });
         es.addEventListener("stage_done", (e) => {
           const d = JSON.parse((e as MessageEvent).data);

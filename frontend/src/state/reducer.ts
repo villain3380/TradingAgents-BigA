@@ -5,11 +5,28 @@ export type Action =
   | { type: "reset"; analysts: AnalystMeta[] }
   | { type: "start_pending" }
   | { type: "token"; agent_id: string; text: string }
-  | { type: "tool"; agent_id: string; tool: string; toolType: string }
+  | { type: "tool"; agent_id: string; tool: string; toolType: string; sources?: string[] }
   | { type: "stage_done"; agent_id?: string; stage?: string; name?: string; report?: string }
   | { type: "stats"; llm_calls: number; tool_calls: number; tokens_in: number; tokens_out: number; elapsed: number }
   | { type: "done"; signal: string; elapsed?: number }
   | { type: "error"; message: string };
+
+/** Mark the first non-done postStage as active — but ONLY while a run is in
+ * progress. Before the user clicks start (running=false) nothing flashes.
+ * Fixes the "all cards green, nothing changing" gap: after risk debators
+ * finish, the risk stage stays active (pulse) until PM's judge_decision lands. */
+function withActiveProgress(postStages: RunState["postStages"], running: boolean): RunState["postStages"] {
+  if (!running) return postStages.map((p) => ({ ...p, active: false }));
+  let foundPending = false;
+  return postStages.map((p) => {
+    if (p.done) return { ...p, active: false };
+    if (!foundPending) {
+      foundPending = true;
+      return { ...p, active: true };
+    }
+    return { ...p, active: false };
+  });
+}
 
 export function makeInitial(analysts: AnalystMeta[], running = false): RunState {
   // Analyst cards come from the registry; downstream streaming agents (bull/
@@ -24,9 +41,11 @@ export function makeInitial(analysts: AnalystMeta[], running = false): RunState 
       status: "pending" as const, text: "", tools: [],
     })),
   ];
+  const postStages = POSTS.map((p) => ({ ...p, done: false, active: false }));
   return {
     cards,
-    postStages: POSTS.map((p) => ({ ...p, done: false })),
+    // No active stage before the user starts a run — nothing flashes.
+    postStages: withActiveProgress(postStages, false),
     signal: null,
     error: null,
     running,
@@ -38,11 +57,12 @@ export function makeInitial(analysts: AnalystMeta[], running = false): RunState 
 export function reducer(state: RunState, action: Action): RunState {
   switch (action.type) {
     case "reset":
+      // reset fires once /api/analyze returns — now running=true, light the first stage.
       return makeInitial(action.analysts, true);
 
     case "start_pending":
-      // Click landed — flip to running immediately (disables the button) while
-      // the POST /api/analyze is in flight. Cards are replaced once it returns.
+      // Click landed — running=true, but stages don't flash yet (reset hasn't
+      // fired; cards/postStages get rebuilt on reset). Don't touch postStages here.
       return { ...state, running: true, signal: null, error: null };
 
     case "token": {
@@ -61,7 +81,7 @@ export function reducer(state: RunState, action: Action): RunState {
         ...state,
         cards: state.cards.map((c) =>
           c.key === action.agent_id
-            ? { ...c, status: "streaming", tools: [...c.tools, { tool: action.tool, type: action.toolType, ts: Date.now() }] }
+            ? { ...c, status: "streaming", tools: [...c.tools, { tool: action.tool, type: action.toolType, ts: Date.now(), sources: action.sources }] }
             : c
         ),
       };
@@ -78,22 +98,25 @@ export function reducer(state: RunState, action: Action): RunState {
           ),
         };
       }
-      return {
-        ...state,
-        postStages: state.postStages.map((p) =>
-          p.id === action.stage ? { ...p, done: true } : p
-        ),
-      };
+      // Downstream stage done → re-derive active (next pending becomes active,
+      // only while still running).
+      const postStages = state.postStages.map((p) =>
+        p.id === action.stage ? { ...p, done: true, active: false } : p
+      );
+      return { ...state, postStages: withActiveProgress(postStages, state.running) };
     }
 
     case "stats":
       return { ...state, stats: { llm_calls: action.llm_calls, tool_calls: action.tool_calls, tokens_in: action.tokens_in, tokens_out: action.tokens_out, elapsed: action.elapsed } };
 
     case "done":
-      return { ...state, signal: action.signal, running: false };
+      // All stages done — clear active flags.
+      return { ...state, signal: action.signal, running: false,
+        postStages: state.postStages.map((p) => ({ ...p, active: false, done: true })) };
 
     case "error":
-      return { ...state, error: action.message, running: false };
+      return { ...state, error: action.message, running: false,
+        postStages: withActiveProgress(state.postStages, false) };
 
     default:
       return state;

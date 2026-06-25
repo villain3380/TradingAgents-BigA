@@ -14,7 +14,7 @@ export interface CardState {
   status: CardStatus;
   text: string; // accumulated token text (live display)
   report?: string; // final report (from stage_done) once done
-  tools: { tool: string; type: string; ts: number }[];
+  tools: { tool: string; type: string; ts: number; sources?: string[] }[];
 }
 
 export interface PostStage {
@@ -22,6 +22,7 @@ export interface PostStage {
   name: string;
   icon: string;
   done: boolean;
+  active: boolean; // currently running — shows "进行中" pulse, fixes the "all green, looks stuck" gap
 }
 
 export interface AnalyzeResponse {

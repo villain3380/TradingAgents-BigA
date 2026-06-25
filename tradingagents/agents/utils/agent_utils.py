@@ -199,13 +199,18 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
 
         # Tool calls → execute them, emit start/end events, continue the loop.
         local_messages.append(result)
+        import re
         for tc in result.tool_calls:
             _emit({"type": "tool_start", "tool": tc["name"], "iter": iteration})
             output = await asyncio.to_thread(tool_map[tc["name"]].invoke, tc["args"])
+            # Extract source URLs from the tool output (get_news returns
+            # "Link: <url>" lines) so the frontend can show provenance.
+            sources = re.findall(r"Link:\s*(\S+)", str(output))[:5]
+            _emit({"type": "tool_end", "tool": tc["name"], "iter": iteration,
+                   "sources": sources})
             local_messages.append(
                 ToolMessage(content=str(output), tool_call_id=tc["id"])
             )
-            _emit({"type": "tool_end", "tool": tc["name"], "iter": iteration})
 
     return _extract_text_delta(getattr(result, "content", "")) or "分析未完成（达到最大迭代次数）"
 

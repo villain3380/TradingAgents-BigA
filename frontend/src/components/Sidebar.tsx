@@ -12,13 +12,10 @@ interface Props {
 }
 
 /**
- * Collapsible left rail for the LLM model config.
- *
- * Collapsed: a slim card showing the active provider + model + a gear icon
- * (so the top of the page isn't dominated by config when you just want to
- * run an analysis). Click to expand into the full ConfigPanel.
- *
- * Expanded: the full config form; click the header again (or ✕) to collapse.
+ * Collapsible model-config card. Stats and progress live in a SEPARATE panel
+ * below this one (StatusPanel) so they're always visible without expanding
+ * the config — expanding config is for changing settings, not for seeing
+ * run status.
  */
 export function Sidebar({ config, onChange, providers, defaultProvider, onReload, disabled }: Props) {
   const [expanded, setExpanded] = useState(false);
@@ -28,11 +25,7 @@ export function Sidebar({ config, onChange, providers, defaultProvider, onReload
     <aside className={`sidebar ${expanded ? "expanded" : "collapsed"}`}>
       <div className="sidebar-header" onClick={() => !disabled && setExpanded((e) => !e)}>
         <span className="sidebar-title">⚙️ 模型配置</span>
-        {expanded ? (
-          <span className="sidebar-toggle">✕</span>
-        ) : (
-          <span className="sidebar-toggle">▸</span>
-        )}
+        {expanded ? <span className="sidebar-toggle">✕</span> : <span className="sidebar-toggle">▸</span>}
       </div>
 
       {expanded ? (

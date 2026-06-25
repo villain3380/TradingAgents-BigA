@@ -1,63 +1,55 @@
-import type { RunState, PostStage } from "../api/types";
+import type { CardState } from "../api/types";
 
 interface Props {
-  state: RunState;
-  runId: string | null;
+  cards: CardState[];
 }
 
 /**
- * Sticky right rail: live stats (elapsed/LLM/tool/tokens) + downstream stage
- * progress + report downloads. Always visible without scrolling, mirroring the
- * left config sidebar so the analyst card grid in the middle is the only thing
- * that scrolls.
+ * Right rail: shows the source URLs retrieved by each analyst's tools.
+ *
+ * Provenance builds trust — users see where the news/data came from. Only
+ * tools that return URLs (currently get_news, which emits "Link: <url>") show
+ * sources here; other tools have empty source lists and are hidden.
  */
-export function RightRail({ state, runId }: Props) {
-  const st = state.stats;
-  const show = state.running || state.signal || state.cards.length > 0;
-  if (!show) return null;
+export function RightRail({ cards }: Props) {
+  // Flatten: list of {agent_label, tool, url} across all cards' tools.
+  const entries: { agent: string; tool: string; url: string }[] = [];
+  for (const c of cards) {
+    for (const t of c.tools) {
+      for (const url of t.sources ?? []) {
+        entries.push({ agent: c.label, tool: t.tool, url });
+      }
+    }
+  }
 
   return (
     <aside className="right-rail">
-      {state.running || state.signal ? (
-        <div className="rail-section">
-          <div className="rail-title">实时统计</div>
-          <div className="stat-grid">
-            <div className="stat-cell"><span className="stat-k">⏱ 用时</span><span className="stat-v">{st.elapsed}s</span></div>
-            <div className="stat-cell"><span className="stat-k">🧠 LLM</span><span className="stat-v">{st.llm_calls}</span></div>
-            <div className="stat-cell"><span className="stat-k">⚡ 工具</span><span className="stat-v">{st.tool_calls}</span></div>
-            <div className="stat-cell"><span className="stat-k">↓ 入 tok</span><span className="stat-v">{st.tokens_in.toLocaleString()}</span></div>
-            <div className="stat-cell"><span className="stat-k">↑ 出 tok</span><span className="stat-v">{st.tokens_out.toLocaleString()}</span></div>
-            {state.signal && <div className="stat-cell signal-cell"><span className="stat-k">信号</span><span className="stat-v">{state.signal}</span></div>}
+      <div className="rail-section">
+        <div className="rail-title">检索来源</div>
+        {entries.length === 0 ? (
+          <div className="sources-empty">
+            {cards.length === 0
+              ? "分析启动后显示来源"
+              : "暂无来源（部分数据源不返回 url）"}
           </div>
-        </div>
-      ) : null}
-
-      {state.postStages.length > 0 && (
-        <div className="rail-section">
-          <div className="rail-title">下游进度</div>
-          <div className="stage-list">
-            {state.postStages.map((s: PostStage) => (
-              <div key={s.id} className={`stage-row ${s.done ? "done" : ""}`}>
-                <span className="stage-icon">{s.icon}</span>
-                <span className="stage-name">{s.name}</span>
-                <span className="stage-mark">{s.done ? "✓" : "○"}</span>
-              </div>
+        ) : (
+          <div className="sources-list">
+            {entries.map((e, i) => (
+              <a
+                key={i}
+                className="source-link"
+                href={e.url}
+                target="_blank"
+                rel="noreferrer"
+                title={`${e.agent} · ${e.tool}`}
+              >
+                <span className="source-agent">{e.agent}</span>
+                <span className="source-url">{e.url}</span>
+              </a>
             ))}
           </div>
-        </div>
-      )}
-
-      {state.signal && runId && (
-        <div className="rail-section">
-          <div className="rail-title">下载报告</div>
-          <a className="btn-download" href={`/api/report/${runId}/md`} target="_blank" rel="noreferrer">
-            📄 Markdown
-          </a>
-          <a className="btn-download" href={`/api/report/${runId}/pdf`} target="_blank" rel="noreferrer">
-            📕 PDF
-          </a>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }
