@@ -49,9 +49,10 @@ Last bear argument: {current_response}
 Deliver a compelling bull argument that integrates A-share market dynamics. Refute the bear's concerns and demonstrate why the bull position holds stronger merit in the Chinese market context.
 """
 
-        response = llm.invoke(prompt)
+        from tradingagents.agents.utils.agent_utils import stream_invoke
+        content = stream_invoke(llm, prompt, "bull")
 
-        argument = f"Bull Analyst: {response.content}"
+        argument = f"Bull Analyst: {content}"
 
         new_investment_debate_state = {
             "history": history + "\n" + argument,

@@ -128,8 +128,8 @@ def create_quality_gate(llm, active: list[AnalystSpec]):
         if fail_count < max(2, len(active) // 2 + 1):
             try:
                 review_prompt = _build_review_prompt(active, reports, trade_date, ticker)
-                response = llm.invoke(review_prompt)
-                llm_review = response.content
+                from tradingagents.agents.utils.agent_utils import stream_invoke
+                llm_review = stream_invoke(llm, review_prompt, "quality_gate")
             except Exception as e:
                 llm_review = f"（LLM 复审失败: {type(e).__name__}: {e}）"
 

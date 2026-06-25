@@ -47,9 +47,10 @@ Conversation history: {history} Last aggressive argument: {current_aggressive_re
 
 Advocate for a balanced, position-sized approach that captures A-share upside while respecting the market's structural constraints. Output conversationally without special formatting."""
 
-        response = llm.invoke(prompt)
+        from tradingagents.agents.utils.agent_utils import stream_invoke
+        content = stream_invoke(llm, prompt, "neutral")
 
-        argument = f"Neutral Analyst: {response.content}"
+        argument = f"Neutral Analyst: {content}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

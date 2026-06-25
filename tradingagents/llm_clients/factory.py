@@ -7,6 +7,32 @@ _OPENAI_COMPATIBLE = (
     "openai", "xai", "deepseek", "qwen", "glm", "ollama", "openrouter", "minimax",
 )
 
+# Providers with dedicated (non-OpenAI) client classes.
+_DEDICATED = ("anthropic", "google", "azure")
+
+
+def builtin_provider_keys() -> tuple[str, ...]:
+    """All built-in provider keys (OpenAI-compatible + dedicated clients)."""
+    return _OPENAI_COMPATIBLE + _DEDICATED
+
+
+def _is_openai_compatible(provider_lower: str) -> bool:
+    """True for built-in OpenAI-compatible providers OR any custom provider.
+
+    Custom providers (defined in settings.json) are always treated as
+    OpenAI-compatible, since users define them as such.
+    """
+    if provider_lower in _OPENAI_COMPATIBLE:
+        return True
+    # Custom providers are stored by their exact name; check case-sensitively
+    # against settings, but also accept the lowercased form for safety.
+    try:
+        from tradingagents.settings import list_custom_providers
+        customs = list_custom_providers()
+        return provider_lower in customs or provider_lower in {k.lower() for k in customs}
+    except Exception:
+        return False
+
 
 def create_llm_client(
     provider: str,
@@ -34,9 +60,9 @@ def create_llm_client(
     """
     provider_lower = provider.lower()
 
-    if provider_lower in _OPENAI_COMPATIBLE:
+    if _is_openai_compatible(provider_lower):
         from .openai_client import OpenAIClient
-        return OpenAIClient(model, base_url, provider=provider_lower, **kwargs)
+        return OpenAIClient(model, base_url, provider=provider, **kwargs)
 
     if provider_lower == "anthropic":
         from .anthropic_client import AnthropicClient

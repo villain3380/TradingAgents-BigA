@@ -27,13 +27,47 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+# Model name substrings that indicate a "thinking"/reasoning model. These
+# models reject tool_choice (function-calling), so structured output via
+# function_calling fails with HTTP 400 ("Thinking mode does not support this
+# tool_choice"). Skip the structured attempt for them and go straight to
+# free-text — same end result as the runtime fallback, but without the failed
+# API call + noisy error log on every run.
+_THINKING_MARKERS = ("reasoner", "think", "latest", "o1", "o3", "r1")
+
+
+def _is_thinking_model(llm: Any) -> bool:
+    """Heuristic: does this LLM look like a thinking/reasoning model?"""
+    name = ""
+    for attr in ("model_name", "model", "deployment_name"):
+        v = getattr(llm, attr, None)
+        if isinstance(v, str) and v:
+            name = v
+            break
+    if not name:
+        return False
+    lname = name.lower()
+    return any(m in lname for m in _THINKING_MARKERS)
+
 
 def bind_structured(llm: Any, schema: type[T], agent_name: str) -> Optional[Any]:
     """Return ``llm.with_structured_output(schema)`` or ``None`` if unsupported.
 
-    Logs a warning when the binding fails so the user understands the agent
-    will use free-text generation for every call instead of one-shot fallback.
+    Returns None (free-text) when:
+    - the provider doesn't support with_structured_output (NotImplementedError)
+    - the model is a thinking/reasoning model (rejects tool_choice at the API)
+
+    Logs a warning when binding fails so the user understands the agent will
+    use free-text generation. For thinking models, logs at INFO since it's an
+    expected, non-erroneous degradation.
     """
+    if _is_thinking_model(llm):
+        logger.info(
+            "%s: thinking/reasoning model detected — skipping structured output "
+            "(tool_choice unsupported), using free-text generation",
+            agent_name,
+        )
+        return None
     try:
         return llm.with_structured_output(schema)
     except (NotImplementedError, AttributeError) as exc:

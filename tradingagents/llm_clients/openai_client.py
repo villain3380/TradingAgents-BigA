@@ -145,26 +145,38 @@ class OpenAIClient(BaseLLMClient):
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
-        # Provider-specific base URL and auth. An explicit base_url on the
-        # client (e.g. a corporate proxy) takes precedence over the
-        # provider default so users can route through their own gateway.
-        if self.provider in _PROVIDER_CONFIG:
-            default_base, api_key_env = _PROVIDER_CONFIG[self.provider]
-            llm_kwargs["base_url"] = self.base_url or default_base
-            if api_key_env:
-                api_key = os.environ.get(api_key_env)
+        # Resolve provider endpoint: (default_base_url, api_key_env).
+        # Built-ins come from _PROVIDER_CONFIG; custom providers from settings.json.
+        default_base, api_key_env = self._resolve_provider_endpoint()
+
+        # base_url precedence: explicit client base_url (e.g. request config's
+        # backend_url) > provider default (built-in or custom).
+        resolved_base = self.base_url or default_base
+
+        # api_key precedence: settings.json api_key (frontend-managed) >
+        # env var (the provider's api_key_env, for .env users) > kwargs.
+        # settings.json wins so the frontend can override .env without restart.
+        settings_key = self._settings_api_key()
+        api_key = settings_key or (os.environ.get(api_key_env) if api_key_env else None)
+
+        if resolved_base is not None or api_key_env is not None or settings_key:
+            llm_kwargs["base_url"] = resolved_base
+            if api_key_env or settings_key:
                 if api_key:
                     llm_kwargs["api_key"] = api_key
                 elif "api_key" not in self.kwargs:
-                    # Without this, ChatOpenAI fails downstream with a confusing
-                    # "OPENAI_API_KEY must be set" — but deepseek/qwen/glm/minimax
-                    # each need their OWN env var. Name the exact one (#42).
+                    # No key anywhere — fail with a clear message naming the env
+                    # var (for .env users) and mentioning frontend settings.
+                    hint = (
+                        f"请在 .env 设置 `{api_key_env}`，或在前端「模型配置」填入 API Key。"
+                        if api_key_env
+                        else f"请在前端「模型配置」填入 {self.provider} 的 API Key。"
+                    )
                     raise RuntimeError(
-                        f"未找到 {self.provider} 的 API Key。请在 .env 文件或环境变量中设置 "
-                        f"`{api_key_env}`（例如 `{api_key_env}=你的key`），设置后重启程序。"
-                        f"注意：{self.provider} 用的是 {api_key_env}，不是 OPENAI_API_KEY。"
+                        f"未找到 {self.provider} 的 API Key。{hint}"
                     )
             else:
+                # ollama: no key expected, use a placeholder.
                 llm_kwargs["api_key"] = "ollama"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
@@ -183,6 +195,39 @@ class OpenAIClient(BaseLLMClient):
         # base NormalizedChatOpenAI stays free of provider-specific branches.
         chat_cls = DeepSeekChatOpenAI if self.provider == "deepseek" else NormalizedChatOpenAI
         return chat_cls(**llm_kwargs)
+
+    def _settings_api_key(self) -> Optional[str]:
+        """Return the api_key saved for this provider in settings.json, or None.
+
+        Looks up the exact provider name, then the lowercased form. Returns
+        None if no key is stored (so .env env-var fallback applies).
+        """
+        try:
+            from tradingagents.settings import get_provider_api_key
+            k = get_provider_api_key(self.provider) or get_provider_api_key(self.provider.lower())
+            return k or None
+        except Exception:
+            return None
+
+    def _resolve_provider_endpoint(self) -> tuple:
+        """Return (default_base_url, api_key_env) for this provider.
+
+        Checks the hardcoded built-in map first, then settings.json custom
+        providers. Returns (None, None) for unknown providers (e.g. a plain
+        OpenAI call with an explicit base_url and api_key in kwargs).
+        """
+        if self.provider in _PROVIDER_CONFIG:
+            return _PROVIDER_CONFIG[self.provider]
+        try:
+            from tradingagents.settings import get_custom_provider
+            # Custom providers are stored by exact name; the factory passes the
+            # original-case name. Try exact then lowercased.
+            cp = get_custom_provider(self.provider) or get_custom_provider(self.provider.lower())
+            if cp:
+                return cp.get("base_url"), cp.get("api_key_env")
+        except Exception:
+            pass
+        return (None, None)
 
     def validate_model(self) -> bool:
         """Validate model for the provider."""

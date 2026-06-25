@@ -46,9 +46,10 @@ Conversation history: {history} Last conservative argument: {current_conservativ
 
 Engage actively, debate persuasively, and assert why aggressive positioning is optimal for this A-share opportunity. Output conversationally without special formatting."""
 
-        response = llm.invoke(prompt)
+        from tradingagents.agents.utils.agent_utils import stream_invoke
+        content = stream_invoke(llm, prompt, "aggressive")
 
-        argument = f"Aggressive Analyst: {response.content}"
+        argument = f"Aggressive Analyst: {content}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

@@ -69,41 +69,63 @@ def test_registry_specs_have_consistent_fields():
 
 # ---------- run_react_loop ----------
 
+def _stream_chain(call_chunks: list[list]):
+    """Build a fake chain whose .stream() yields a preset chunk list per call.
+
+    Each call to .stream() pops the next list of AIMessageChunks. Mirrors how
+    a real ``prompt | llm.bind_tools(tools)`` behaves under ``chain.stream()``.
+    """
+    from langchain_core.messages import AIMessageChunk
+    calls = list(call_chunks)
+    state = {"i": 0}
+
+    class _Chain:
+        def stream(self, msgs):
+            idx = state["i"]
+            state["i"] += 1
+            for c in calls[idx]:
+                yield c
+
+    return _Chain()
+
+
 def test_run_react_loop_returns_content_when_no_tool_calls():
     from tradingagents.agents.utils.agent_utils import run_react_loop
+    from langchain_core.messages import AIMessageChunk
 
-    chain = MagicMock()
-    chain.invoke.return_value = AIMessage(content="final report text")
+    chain = _stream_chain([[AIMessageChunk(content="final report text")]])
     report = run_react_loop(chain, tools=[], initial_message="hi", max_iterations=3)
     assert report == "final report text"
 
 
 def test_run_react_loop_executes_tools_then_returns():
+    import json
     from tradingagents.agents.utils.agent_utils import run_react_loop
+    from langchain_core.messages import AIMessageChunk
 
     tool = MagicMock()
     tool.name = "lookup"
     tool.invoke.return_value = "DATA"
-    # First call wants a tool, second call returns final content.
-    chain = MagicMock()
-    chain.invoke.side_effect = [
-        AIMessage(content="", tool_calls=[{"name": "lookup", "args": {}, "id": "1"}]),
-        AIMessage(content="report after tool"),
-    ]
+    chain = _stream_chain([
+        [AIMessageChunk(content="", tool_call_chunks=[{"name": "lookup", "args": json.dumps({}), "id": "1", "index": 0}])],
+        [AIMessageChunk(content="report after tool")],
+    ])
     report = run_react_loop(chain, tools=[tool], initial_message="hi", max_iterations=5)
     assert report == "report after tool"
     tool.invoke.assert_called_once_with({})
 
 
 def test_run_react_loop_caps_at_max_iterations():
+    import json
     from tradingagents.agents.utils.agent_utils import run_react_loop
+    from langchain_core.messages import AIMessageChunk
 
     tool = MagicMock()
     tool.name = "loop"
     tool.invoke.return_value = "x"
-    chain = MagicMock()
-    # Always requests a tool -> hits the iteration cap.
-    chain.invoke.return_value = AIMessage(content="partial", tool_calls=[{"name": "loop", "args": {}, "id": "1"}])
+    # Every call requests the tool -> hits the iteration cap, returns last content.
+    chunk = AIMessageChunk(content="partial", tool_call_chunks=[{"name": "loop", "args": json.dumps({}), "id": "1", "index": 0}])
+    chain = _stream_chain([[chunk], [chunk]])
     report = run_react_loop(chain, tools=[tool], initial_message="hi", max_iterations=2)
     assert report == "partial"
 

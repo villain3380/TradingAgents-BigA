@@ -47,9 +47,10 @@ Conversation history: {history} Last aggressive argument: {current_aggressive_re
 
 Demonstrate why a conservative stance is the safest path, especially given A-share market structure where downside protection mechanisms (stop-loss, same-day exit) are severely limited. Output conversationally without special formatting."""
 
-        response = llm.invoke(prompt)
+        from tradingagents.agents.utils.agent_utils import stream_invoke
+        content = stream_invoke(llm, prompt, "conservative")
 
-        argument = f"Conservative Analyst: {response.content}"
+        argument = f"Conservative Analyst: {content}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,
