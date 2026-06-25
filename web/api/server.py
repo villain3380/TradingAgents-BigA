@@ -292,8 +292,13 @@ async def analyze(req: AnalyzeRequest) -> dict:
     """Start a run in the background; return run_id immediately."""
     run_id = uuid.uuid4().hex[:12]
     queue: asyncio.Queue = asyncio.Queue()
+    # Register the run BEFORE creating the task. _run_graph's first action is
+    # _runs.get(run_id); if create_task runs first, the task can start before
+    # this dict assignment lands, see run=None, and silently no-op. Setting
+    # the record first guarantees _run_graph always finds it.
+    _runs[run_id] = {"queue": queue, "task": None}
     task = asyncio.create_task(_run_graph(run_id, req))
-    _runs[run_id] = {"queue": queue, "task": task}
+    _runs[run_id]["task"] = task
     return {
         "run_id": run_id,
         "ticker": req.ticker,

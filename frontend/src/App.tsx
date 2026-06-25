@@ -60,7 +60,7 @@ export default function App() {
       <main className="app-main">
         <header className="app-header">
           <h1>TradingAgents · 实时分析</h1>
-          <span className="subtitle">7 分析师并行 · token 级流式</span>
+          <span className="subtitle">7 分析师并行架构 · token 级流式输出</span>
         </header>
 
         <Controls

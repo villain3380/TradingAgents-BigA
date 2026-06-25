@@ -64,16 +64,21 @@ export function useAnalysisStream() {
           es.close();
         });
         es.addEventListener("error", (e) => {
-          // EventSource fires 'error' both on real errors and on connection drop.
-          // If we have a message payload, surface it; otherwise let it reconnect.
+          // EventSource fires 'error' both on real (server-pushed) errors and
+          // on transient connection drops. A server error carries a `data`
+          // payload and is terminal — close so EventSource does NOT auto-reconnect
+          // (reconnecting after the run ended yields "unknown run_id" which would
+          // clobber the real error message). A transport drop has no data; let
+          // EventSource retry.
           const me = e as MessageEvent;
           if (me.data) {
             try {
               const d = JSON.parse(me.data);
               dispatch({ type: "error", message: d.message });
             } catch {
-              /* ignore parse errors on transport-level error events */
+              /* ignore parse errors */
             }
+            es.close();  // terminal — stop the auto-reconnect
           }
         });
       } catch (e) {
