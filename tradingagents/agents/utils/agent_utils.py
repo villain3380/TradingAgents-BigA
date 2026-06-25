@@ -109,12 +109,12 @@ def _get_stream_writer():
         return lambda _data: None
 
 
-def stream_invoke(llm, prompt, agent_id: str) -> str:
+async def stream_invoke(llm, prompt, agent_id: str) -> str:
     """Stream a free-text LLM call and forward tokens to the SSE frontend.
 
     Used by the downstream nodes (quality gate, bull/bear researchers, risk
     debators) that do a single ``llm.invoke(prompt)`` and return the text.
-    This wraps it with ``llm.stream`` so each token is forwarded as a custom
+    This wraps it with ``llm.astream`` so each token is forwarded as a custom
     event carrying ``agent_id`` (e.g. "bull", "quality_gate"), letting the
     frontend show the debate/risk stages streaming live instead of blocking.
 
@@ -124,7 +124,7 @@ def stream_invoke(llm, prompt, agent_id: str) -> str:
     """
     writer = _get_stream_writer()
     parts: list[str] = []
-    for chunk in llm.stream(prompt):
+    async for chunk in llm.astream(prompt):
         text = _extract_text_delta(chunk.content)
         if text:
             parts.append(text)
@@ -136,7 +136,7 @@ def stream_invoke(llm, prompt, agent_id: str) -> str:
     return content
 
 
-def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> str:
+async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> str:
     """Self-contained ReAct tool-calling loop that stays inside one graph node.
 
     Runs ``chain`` (a ``prompt | llm.bind_tools(tools)``) against a *local*
@@ -150,14 +150,20 @@ def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> s
     the shared ``messages`` channel. It also removes the need for the old
     per-analyst ``ToolNode`` + conditional-edge + ``Msg Clear`` graph machinery.
 
-    Streaming: the LLM is consumed with ``chain.stream()`` so each text token
+    Streaming: the LLM is consumed with ``chain.astream()`` so each text token
     is forwarded to the graph's custom stream (via ``get_stream_writer``) as an
     ``analyst_event`` carrying the ``agent_id``. The frontend SSE layer turns
     these into per-card token updates. When no streaming consumer is attached
     (Streamlit path, unit tests) the writer is a no-op and behaviour is
     identical to the old ``chain.invoke`` version. The return value (full
     report string) is unchanged either way.
+
+    Async: nodes are ``async def`` so the Web API's ``graph.astream`` runs
+    analysts concurrently in one event loop. Sync tool calls are offloaded via
+    ``asyncio.to_thread`` so they don't block the loop.
     """
+    import asyncio
+
     local_messages = [initial_message]
     tool_map = {t.name: t for t in tools}
     agent_id = _resolve_agent_id()
@@ -170,7 +176,7 @@ def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> s
 
     for iteration in range(max_iterations):
         collected = None  # AIMessageChunk accumulator
-        for chunk in chain.stream(local_messages):
+        async for chunk in chain.astream(local_messages):
             # Text token → emit a streaming event.
             text = _extract_text_delta(chunk.content)
             if text:
@@ -195,7 +201,7 @@ def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> s
         local_messages.append(result)
         for tc in result.tool_calls:
             _emit({"type": "tool_start", "tool": tc["name"], "iter": iteration})
-            output = tool_map[tc["name"]].invoke(tc["args"])
+            output = await asyncio.to_thread(tool_map[tc["name"]].invoke, tc["args"])
             local_messages.append(
                 ToolMessage(content=str(output), tool_call_id=tc["id"])
             )

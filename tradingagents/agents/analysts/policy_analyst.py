@@ -13,7 +13,7 @@ from tradingagents.dataflows.config import get_config
 def create_policy_analyst(llm):
     """A-stock policy analyst: tracks regulatory and industrial policy signals."""
 
-    def policy_analyst_node(state):
+    async def policy_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = build_instrument_context(state["company_of_interest"])
 
@@ -74,7 +74,7 @@ def create_policy_analyst(llm):
         chain = prompt | llm.bind_tools(tools)
 
         initial_msg = HumanMessage(content=state["company_of_interest"])
-        report = run_react_loop(chain, tools, initial_msg, max_iterations=10)
+        report = await run_react_loop(chain, tools, initial_msg, max_iterations=10)
 
         return {
             "policy_report": report,

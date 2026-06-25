@@ -1,7 +1,7 @@
 
 
 def create_conservative_debator(llm):
-    def conservative_node(state) -> dict:
+    async def conservative_node(state) -> dict:
         risk_debate_state = state["risk_debate_state"]
         history = risk_debate_state.get("history", "")
         conservative_history = risk_debate_state.get("conservative_history", "")
@@ -48,7 +48,7 @@ Conversation history: {history} Last aggressive argument: {current_aggressive_re
 Demonstrate why a conservative stance is the safest path, especially given A-share market structure where downside protection mechanisms (stop-loss, same-day exit) are severely limited. Output conversationally without special formatting."""
 
         from tradingagents.agents.utils.agent_utils import stream_invoke
-        content = stream_invoke(llm, prompt, "conservative")
+        content = await stream_invoke(llm, prompt, "conservative")
 
         argument = f"Conservative Analyst: {content}"
 

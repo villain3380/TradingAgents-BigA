@@ -103,7 +103,7 @@ def create_quality_gate(llm, active: list[AnalystSpec]):
     Writes data_quality_summary to state for downstream consumers.
     """
 
-    def quality_gate_node(state) -> dict:
+    async def quality_gate_node(state) -> dict:
         trade_date = state["trade_date"]
         ticker = state["company_of_interest"]
 
@@ -129,7 +129,7 @@ def create_quality_gate(llm, active: list[AnalystSpec]):
             try:
                 review_prompt = _build_review_prompt(active, reports, trade_date, ticker)
                 from tradingagents.agents.utils.agent_utils import stream_invoke
-                llm_review = stream_invoke(llm, review_prompt, "quality_gate")
+                llm_review = await stream_invoke(llm, review_prompt, "quality_gate")
             except Exception as e:
                 llm_review = f"（LLM 复审失败: {type(e).__name__}: {e}）"
 

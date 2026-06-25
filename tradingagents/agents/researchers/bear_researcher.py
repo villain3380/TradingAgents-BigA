@@ -1,7 +1,7 @@
 
 
 def create_bear_researcher(llm):
-    def bear_node(state) -> dict:
+    async def bear_node(state) -> dict:
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")
         bear_history = investment_debate_state.get("bear_history", "")
@@ -51,7 +51,7 @@ Deliver a compelling bear argument grounded in A-share market realities. Refute 
 """
 
         from tradingagents.agents.utils.agent_utils import stream_invoke
-        content = stream_invoke(llm, prompt, "bear")
+        content = await stream_invoke(llm, prompt, "bear")
 
         argument = f"Bear Analyst: {content}"
 

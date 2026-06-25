@@ -23,6 +23,7 @@
 
 - [为什么做这个 Fork](#为什么做这个-fork)
 - [与上游对比](#与上游对比)
+- [v0.3 架构升级（并行 · 流式 · 可插拔）](#v03-架构升级并行--流式--可插拔)
 - [架构概览](#架构概览)
 - [7 个 Analyst 角色](#7-个-analyst-角色)
 - [数据源](#数据源)
@@ -63,6 +64,85 @@
 | A 股数据 | ❌ | **mootdx + 东财 + 新浪 + 同花顺（直连 HTTP）** |
 | A 股特化角色 | ❌ | **政策/游资/解禁 3 个深度角色** |
 | A 股交易约束 | ❌ | **T+1/涨跌停/手数/ST 全覆盖** |
+
+---
+
+## v0.3 架构升级（并行 · 流式 · 可插拔）
+
+v0.3 在不破坏原业务逻辑（数据层、辩论、风控、交易、记忆）的前提下，对执行模型、输出方式、配置方式做了三项架构级升级。
+
+### 1. 7 分析师并行可插拔
+
+原版 7 个分析师**串行**执行，加减一个要改 4 处硬编码。v0.3 改成：
+
+- **单一事实源** `tradingagents/agents/analysts/registry.py`：`AnalystSpec(key/label/icon/report_field/create)` + `ANALYST_REGISTRY`。加/减分析师只动 registry 一行，图/质量门控/前端零改动。
+- **Send fan-out + barrier fan-in**：`setup.py` 用 LangGraph `Send` 并行启动选中分析师，全部完成后 barrier 进入 Quality Gate。分析师互不依赖（各只读 `ticker`+`date`，各写独立 report 字段）。
+- **节点内自包含 ReAct** `run_react_loop`：局部 messages 不写回共享 state，消除了图层面的 per-analyst ToolNode / 条件边 / Msg Clear 机制（原版那套被你嫌"复杂"的脚手架直接删掉）。
+- **前端可勾选**：Web 侧边栏 multiselect 启用/禁用分析师，未选中的不运行、不评分、不显示。
+
+> 插拔契约：加分析师 = 写一个 `create_xxx(llm)` 工厂 + registry 加一行。`setup.py` / `quality_gate.py` / `web/progress.py` / `web/runner.py` 全部自动适配。
+
+### 2. Token 级流式输出
+
+原版分析师跑完才出整段报告（块级），v0.3 改成逐 token 流式：
+
+- **LangGraph custom stream 穿透**：节点内 `get_stream_writer()` 发 token 事件，外层 `astream(stream_mode=["custom","updates"])` 消费——custom 流 = token/工具事件，updates 流 = 阶段完成。比 `dispatch_custom_event` + callback relay + 跨线程 Queue 简单一整层。
+- **agent_id 自动获取**：节点内 `get_config()["metadata"]["langgraph_node"]` → `"market_analyst"` → `"market"`，7 个 analyst 文件零改动，并行事件各带各的 node 名不串台。
+- **下游也流式**：`stream_invoke(llm, prompt, agent_id)` helper 让质量门控 / 多空辩论 / 风控辩论 6 个节点也逐字流，不再"卡死"假象。
+- **思考模型静默降级**：`bind_structured` 检测思考模型（glm-latest/deepseek-reasoner 等），跳过 structured output 走自由文本，避免 `tool_choice unsupported` 的 400 噪音。
+
+### 3. 配置数据化 + 前端管理（settings.json）
+
+原版 LLM 配置散落在 `.env`（每 provider 一个写死的变量名）+ 代码硬编码映射，改 key 要重启。v0.3 改成：
+
+- **`~/.tradingagents/settings.json`** 存所有 LLM 配置：默认 provider + 每 provider 的 model/base_url/api_key + 自定义 provider。原子写，不入仓库（家目录）。
+- **key 优先级**：settings.json api_key > .env 环境变量 > 代码默认。前端改 key 运行时生效，**不用重启**。
+- **自定义 provider**：前端可新增任意 OpenAI 兼容 provider（如火山方舟中转），填名称/base_url/key，保存后即可选用。内置 provider 冲突保护、可编辑可删除。
+- **key 安全**：API 响应只返回 `has_key` 布尔，绝不返回明文；前端用密码框 mask，编辑时不回填。
+- **`.env` 仍兼容**：老用户/批量预设可继续用 .env，settings.json 优先。
+
+### 4. 新增 FastAPI 流式服务（与 Streamlit 共存）
+
+新增独立入口 `tradingagents-api`（`web/api/`），提供 SSE 端点供新 TS 前端消费：
+
+| 端点 | 作用 |
+|------|------|
+| `GET /api/analysts` | 分析师元数据 |
+| `GET /api/providers` | provider 列表 + model 选项 + 已存配置（不含 key） |
+| `POST /api/analyze` | 启动分析，返回 run_id |
+| `GET /api/stream/{run_id}` | SSE 流：token / 工具 / 阶段完成 / done / error |
+| `POST /api/stop/{run_id}` | 停止运行（cancel task，等真正取消） |
+| `GET /api/report/{run_id}/md\|pdf` | 下载 Markdown / PDF 报告 |
+
+原 Streamlit UI（`tradingagents-web`）完全保留，两入口共享 `TradingAgentsGraph` 核心，互不影响。
+
+### 升级前后对比
+
+| 维度 | v0.2（原 fork） | v0.3 |
+|------|----------------|------|
+| 分析师执行 | 串行 | **并行 fan-out** |
+| 加减分析师 | 改 4 处 | **改 registry 1 处** |
+| 输出 | 块级（跑完才出） | **token 级流式** |
+| 下游辩论 | 块级 | **流式（不再卡死假象）** |
+| LLM 配置 | .env 硬编码 + 重启 | **settings.json + 前端管理 + 运行时生效** |
+| 自定义 provider | ❌ | **✅ 前端新增** |
+| 前端 | Streamlit 表单 | **Streamlit + 新 TS 流式 UI（7 卡片 + markdown）** |
+| 停止运行 | ❌ | **✅ cancel + 等真停** |
+| 报告下载 | Streamlit 内 | **Streamlit + API 端点** |
+
+### 启动新 TS 前端
+
+```bash
+# 终端 1：API server
+tradingagents-api          # 或 .venv/Scripts/python.exe -m uvicorn web.api.server:app --port 8000
+
+# 终端 2：前端
+cd frontend && npm install && npm run dev   # :5173
+```
+
+浏览器开 `http://localhost:5173`：左侧配置侧栏（可折叠）+ 中间 7 分析师卡片（固定高度内部滚动，点开 Modal 放大看 markdown 报告）+ 右侧实时统计/进度/下载。
+
+> 需要 `pip install -e ".[api]"` 装 FastAPI 依赖；前端 `npm install` 在 `frontend/` 下。
 
 ---
 

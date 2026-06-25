@@ -1,7 +1,7 @@
 
 
 def create_aggressive_debator(llm):
-    def aggressive_node(state) -> dict:
+    async def aggressive_node(state) -> dict:
         risk_debate_state = state["risk_debate_state"]
         history = risk_debate_state.get("history", "")
         aggressive_history = risk_debate_state.get("aggressive_history", "")
@@ -47,7 +47,7 @@ Conversation history: {history} Last conservative argument: {current_conservativ
 Engage actively, debate persuasively, and assert why aggressive positioning is optimal for this A-share opportunity. Output conversationally without special formatting."""
 
         from tradingagents.agents.utils.agent_utils import stream_invoke
-        content = stream_invoke(llm, prompt, "aggressive")
+        content = await stream_invoke(llm, prompt, "aggressive")
 
         argument = f"Aggressive Analyst: {content}"
 

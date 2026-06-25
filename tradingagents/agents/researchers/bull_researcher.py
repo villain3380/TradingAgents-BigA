@@ -1,7 +1,7 @@
 
 
 def create_bull_researcher(llm):
-    def bull_node(state) -> dict:
+    async def bull_node(state) -> dict:
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")
         bull_history = investment_debate_state.get("bull_history", "")
@@ -50,7 +50,7 @@ Deliver a compelling bull argument that integrates A-share market dynamics. Refu
 """
 
         from tradingagents.agents.utils.agent_utils import stream_invoke
-        content = stream_invoke(llm, prompt, "bull")
+        content = await stream_invoke(llm, prompt, "bull")
 
         argument = f"Bull Analyst: {content}"
 

@@ -70,17 +70,18 @@ def test_registry_specs_have_consistent_fields():
 # ---------- run_react_loop ----------
 
 def _stream_chain(call_chunks: list[list]):
-    """Build a fake chain whose .stream() yields a preset chunk list per call.
+    """Build a fake chain whose .astream() yields a preset chunk list per call.
 
-    Each call to .stream() pops the next list of AIMessageChunks. Mirrors how
-    a real ``prompt | llm.bind_tools(tools)`` behaves under ``chain.stream()``.
+    Each call to .astream() pops the next list of AIMessageChunks. Mirrors how
+    a real ``prompt | llm.bind_tools(tools)`` behaves under ``chain.astream()``.
+    run_react_loop is now async and consumes ``chain.astream``.
     """
     from langchain_core.messages import AIMessageChunk
     calls = list(call_chunks)
     state = {"i": 0}
 
     class _Chain:
-        def stream(self, msgs):
+        async def astream(self, msgs):
             idx = state["i"]
             state["i"] += 1
             for c in calls[idx]:
@@ -90,15 +91,17 @@ def _stream_chain(call_chunks: list[list]):
 
 
 def test_run_react_loop_returns_content_when_no_tool_calls():
+    import asyncio
     from tradingagents.agents.utils.agent_utils import run_react_loop
     from langchain_core.messages import AIMessageChunk
 
     chain = _stream_chain([[AIMessageChunk(content="final report text")]])
-    report = run_react_loop(chain, tools=[], initial_message="hi", max_iterations=3)
+    report = asyncio.run(run_react_loop(chain, tools=[], initial_message="hi", max_iterations=3))
     assert report == "final report text"
 
 
 def test_run_react_loop_executes_tools_then_returns():
+    import asyncio
     import json
     from tradingagents.agents.utils.agent_utils import run_react_loop
     from langchain_core.messages import AIMessageChunk
@@ -110,12 +113,13 @@ def test_run_react_loop_executes_tools_then_returns():
         [AIMessageChunk(content="", tool_call_chunks=[{"name": "lookup", "args": json.dumps({}), "id": "1", "index": 0}])],
         [AIMessageChunk(content="report after tool")],
     ])
-    report = run_react_loop(chain, tools=[tool], initial_message="hi", max_iterations=5)
+    report = asyncio.run(run_react_loop(chain, tools=[tool], initial_message="hi", max_iterations=5))
     assert report == "report after tool"
     tool.invoke.assert_called_once_with({})
 
 
 def test_run_react_loop_caps_at_max_iterations():
+    import asyncio
     import json
     from tradingagents.agents.utils.agent_utils import run_react_loop
     from langchain_core.messages import AIMessageChunk
@@ -126,7 +130,7 @@ def test_run_react_loop_caps_at_max_iterations():
     # Every call requests the tool -> hits the iteration cap, returns last content.
     chunk = AIMessageChunk(content="partial", tool_call_chunks=[{"name": "loop", "args": json.dumps({}), "id": "1", "index": 0}])
     chain = _stream_chain([[chunk], [chunk]])
-    report = run_react_loop(chain, tools=[tool], initial_message="hi", max_iterations=2)
+    report = asyncio.run(run_react_loop(chain, tools=[tool], initial_message="hi", max_iterations=2))
     assert report == "partial"
 
 
@@ -253,6 +257,7 @@ def test_full_graph_compiles_with_subset_and_drops_old_nodes():
 # ---------- quality gate only grades active ----------
 
 def test_quality_gate_only_grades_active_analysts():
+    import asyncio
     from tradingagents.agents.analysts.registry import resolve_selected
     from tradingagents.agents.quality_gate import create_quality_gate
 
@@ -267,7 +272,7 @@ def test_quality_gate_only_grades_active_analysts():
         # Deselected fields present but must be ignored:
         "sentiment_report": "", "fundamentals_report": "",
     }
-    out = gate(state)
+    out = asyncio.run(gate(state))
     summary = out["data_quality_summary"]
     assert "技术分析师" in summary
     assert "新闻分析师" in summary

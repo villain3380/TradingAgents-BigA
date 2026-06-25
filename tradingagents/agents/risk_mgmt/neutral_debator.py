@@ -1,7 +1,7 @@
 
 
 def create_neutral_debator(llm):
-    def neutral_node(state) -> dict:
+    async def neutral_node(state) -> dict:
         risk_debate_state = state["risk_debate_state"]
         history = risk_debate_state.get("history", "")
         neutral_history = risk_debate_state.get("neutral_history", "")
@@ -48,7 +48,7 @@ Conversation history: {history} Last aggressive argument: {current_aggressive_re
 Advocate for a balanced, position-sized approach that captures A-share upside while respecting the market's structural constraints. Output conversationally without special formatting."""
 
         from tradingagents.agents.utils.agent_utils import stream_invoke
-        content = stream_invoke(llm, prompt, "neutral")
+        content = await stream_invoke(llm, prompt, "neutral")
 
         argument = f"Neutral Analyst: {content}"
 
