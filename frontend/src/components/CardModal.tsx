@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CardState } from "../api/types";
+import { Markdown } from "./Markdown";
 
 interface Props {
   card: CardState | undefined;
@@ -9,8 +10,10 @@ interface Props {
 export function CardModal({ card, onClose }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
-  // Text pane : tool pane ratio (percent for text pane). Default 70 (7:3).
-  const [ratio, setRatio] = useState(70);
+  // Text pane : tool pane ratio (percent for text pane). Default 85 — the
+  // report text is the point; tools are a secondary aid, so they get a small
+  // fixed slice. Drag to adjust between 50% and 95%.
+  const [ratio, setRatio] = useState(85);
   const dragging = useRef(false);
 
   useEffect(() => {
@@ -34,7 +37,7 @@ export function CardModal({ card, onClose }: Props) {
       if (!overlay) return;
       const rect = overlay.getBoundingClientRect();
       const pct = ((e.clientY - rect.top) / rect.height) * 100;
-      setRatio(Math.max(25, Math.min(85, pct)));
+      setRatio(Math.max(50, Math.min(95, pct)));
     };
     const onUp = () => {
       dragging.current = false;
@@ -66,9 +69,9 @@ export function CardModal({ card, onClose }: Props) {
         {hasTools ? (
           <div className="modal-split">
             <div className="modal-text-pane" style={{ height: `${ratio}%` }}>
-              <div className="pane-title">输出</div>
+              <div className="pane-title">报告</div>
               <div className="modal-body" ref={bodyRef}>
-                <pre className="modal-text">{card.text}</pre>
+                <Markdown>{card.text}</Markdown>
                 {card.status === "streaming" && <span className="cursor">▍</span>}
               </div>
             </div>
@@ -89,7 +92,7 @@ export function CardModal({ card, onClose }: Props) {
           </div>
         ) : (
           <div className="modal-body full" ref={bodyRef}>
-            <pre className="modal-text">{card.text}</pre>
+            <Markdown>{card.text}</Markdown>
             {card.status === "streaming" && <span className="cursor">▍</span>}
           </div>
         )}
