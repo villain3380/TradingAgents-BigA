@@ -93,10 +93,13 @@ def invoke_structured_or_freetext(
     shape). The same value is forwarded to the free-text path so the
     fallback sees the same input the structured call did.
     """
+    result: str
     if structured_llm is not None:
         try:
-            result = structured_llm.invoke(prompt)
-            return render(result)
+            obj = structured_llm.invoke(prompt)
+            result = render(obj)
+            _record_structured(agent_name, prompt, result)
+            return result
         except Exception as exc:
             logger.warning(
                 "%s: structured-output invocation failed (%s); retrying once as free text",
@@ -104,4 +107,49 @@ def invoke_structured_or_freetext(
             )
 
     response = plain_llm.invoke(prompt)
-    return response.content
+    result = response.content
+    _record_structured(agent_name, prompt, result)
+    return result
+
+
+# ── SFT recording for structured-output agents ────────────────────────────
+
+_STRUCTURED_ROLES: dict[str, str] = {
+    "Research Manager": "研究主管",
+    "Trader": "交易员",
+    "Portfolio Manager": "投资组合经理",
+}
+
+
+def _record_structured(agent_name: str, prompt, result: str) -> None:
+    """Record a structured-output agent conversation for SFT.
+
+    *prompt* may be a plain string (Research Manager, Portfolio Manager) or a
+    list of ``{"role": …, "content": …}`` dicts (Trader).  *agent_name* is the
+    human-readable role label (e.g. ``"Trader"``).
+    """
+    if agent_name not in _STRUCTURED_ROLES:
+        return
+
+    from tradingagents.agents.utils.sft_recorder import get_sft_recorder
+    recorder = get_sft_recorder()
+    if recorder is None:
+        return
+
+    agent_role = _STRUCTURED_ROLES[agent_name]
+    agent_id = agent_name.lower().replace(" ", "_")
+
+    # Build messages depending on prompt type.
+    messages: list[dict]
+    if isinstance(prompt, list):
+        # Trader: prompt is already [{"role":"system",…}, {"role":"user",…}]
+        messages = [dict(m) for m in prompt]  # shallow copy
+        messages.append({"role": "assistant", "content": result})
+    else:
+        messages = [
+            {"role": "system", "content": f"你是{agent_role}。"},
+            {"role": "user", "content": str(prompt)},
+            {"role": "assistant", "content": result},
+        ]
+
+    recorder.record(agent_id=agent_id, agent_role=agent_role, tools=[], messages=messages)

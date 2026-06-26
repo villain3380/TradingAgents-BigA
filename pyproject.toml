@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tradingagents-astock"
+name = "tradingagents-biga"
 version = "0.2.15"
-description = "A股多Agent投研框架 — 基于 TradingAgents 深度特化"
+description = "TradingAgents-BigA — A股多Agent投研框架"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}

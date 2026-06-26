@@ -133,10 +133,14 @@ async def stream_invoke(llm, prompt, agent_id: str) -> str:
     content = "".join(parts)
     if agent_id:
         writer({"agent_id": agent_id, "type": "report_done"})
+
+    # SFT recording: single-turn, no tools.
+    _record_downstream(agent_id, prompt, content)
     return content
 
 
-async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10) -> str:
+async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10,
+                        system_prompt_text: str = "") -> str:
     """Self-contained ReAct tool-calling loop that stays inside one graph node.
 
     Runs ``chain`` (a ``prompt | llm.bind_tools(tools)``) against a *local*
@@ -161,6 +165,11 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
     Async: nodes are ``async def`` so the Web API's ``graph.astream`` runs
     analysts concurrently in one event loop. Sync tool calls are offloaded via
     ``asyncio.to_thread`` so they don't block the loop.
+
+    SFT recording: when *system_prompt_text* is provided and an SFT recorder
+    is active, the complete conversation (system → user → assistant/tool_calls
+    → tool_result → ... → assistant/final) is captured after the loop and
+    written to the session's JSONL file at flush time.
     """
     import asyncio
 
@@ -195,7 +204,10 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
         # No tool calls → the model produced its final report.
         if not result.tool_calls:
             _emit({"type": "report_done", "iter": iteration})
-            return _extract_text_delta(result.content) or result.content
+            final_text = _extract_text_delta(result.content) or result.content
+            _record_react_loop(agent_id, tools, system_prompt_text,
+                               local_messages, result)
+            return final_text
 
         # Tool calls → execute them, emit start/end events, continue the loop.
         local_messages.append(result)
@@ -212,7 +224,170 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
                 ToolMessage(content=str(output), tool_call_id=tc["id"])
             )
 
-    return _extract_text_delta(getattr(result, "content", "")) or "分析未完成（达到最大迭代次数）"
+    final_text = _extract_text_delta(getattr(result, "content", "")) or "分析未完成（达到最大迭代次数）"
+    _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
+    return final_text
+
+
+def _record_react_loop(
+    agent_id: str | None,
+    tools: list,
+    system_prompt_text: str,
+    local_messages: list,
+    final_result,  # AIMessage — the last assistant response (not yet in local_messages)
+) -> None:
+    """Build SFT-format messages from a completed ReAct loop and submit to the recorder.
+
+    *local_messages* contains the conversation history *excluding* the final
+    assistant message (which is passed separately as *final_result* because
+    ``run_react_loop`` only appends tool-calling turns to the list).
+
+    Every early-return path writes a diagnostic to the recorder's debug log
+    (when a recorder is active) so there are never silent failures.
+    """
+    from tradingagents.agents.utils.sft_recorder import get_sft_recorder
+    recorder = get_sft_recorder()
+
+    # ── early-return: no recorder active ──
+    if recorder is None:
+        return
+
+    # ── early-return: couldn't resolve agent ──
+    if agent_id is None:
+        recorder._log(
+            "⚠ _record_react_loop: agent_id is None — _resolve_agent_id() "
+            "returned None. This usually means the function is running outside "
+            "a LangGraph context (unit test / Streamlit). system_prompt="
+            f"{bool(system_prompt_text)} local_msgs={len(local_messages)}"
+        )
+        return
+
+    # ── early-return: empty system prompt ──
+    if not system_prompt_text:
+        recorder._log(
+            f"⚠ _record_react_loop({agent_id}): system_prompt_text is EMPTY. "
+            "The analyst node may not have rendered the prompt template. "
+            "SFT messages will lack a system message — training data quality degraded."
+        )
+
+    # Resolve agent_role from the registry.
+    from tradingagents.agents.analysts.registry import ANALYST_BY_KEY
+    spec = ANALYST_BY_KEY.get(agent_id)
+    agent_role = spec.label if spec else agent_id
+
+    recorder._log(
+        f"_record_react_loop: agent_id={agent_id} role={agent_role} "
+        f"local_msgs={len(local_messages)} tools={[t.name for t in tools]} "
+        f"final_result_type={type(final_result).__name__ if final_result is not None else 'None'}"
+    )
+
+    # Build tool_call_id → name lookup from AIMessage tool_calls.
+    tool_call_id_to_name: dict[str, str] = {}
+    for msg in local_messages:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_call_id_to_name[tc["id"]] = tc.get("name", "")
+    if tool_call_id_to_name:
+        recorder._log(f"  tool_call_id → name map: {tool_call_id_to_name}")
+
+    # Assemble SFT messages: system → user → assistant → user(tool_result) → ...
+    sft_messages: list[dict] = []
+
+    if system_prompt_text:
+        sft_messages.append({"role": "system", "content": system_prompt_text})
+
+    for msg in local_messages:
+        role = _get_message_role(msg)
+        if role == "user":
+            sft_messages.append({"role": "user", "content": _msg_content(msg)})
+        elif role == "assistant":
+            entry: dict = {"role": "assistant", "content": _msg_content(msg)}
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                entry["tool_calls"] = [
+                    {"id": tc["id"], "name": tc["name"], "args": tc["args"]}
+                    for tc in msg.tool_calls
+                ]
+            sft_messages.append(entry)
+        elif role == "tool":
+            sft_messages.append({
+                "role": "tool",
+                "content": str(getattr(msg, "content", "")),
+                "tool_call_id": getattr(msg, "tool_call_id", ""),
+            })
+        else:
+            recorder._log(f"  ⚠ unknown message role '{role}' — skipping message: {type(msg).__name__}")
+
+    # Append the final assistant message (not in local_messages).
+    if final_result is not None:
+        final_content = _extract_text_delta(getattr(final_result, "content", "")) or str(getattr(final_result, "content", ""))
+        sft_messages.append({"role": "assistant", "content": final_content})
+        recorder._log(f"  appended final assistant message ({len(final_content)} chars)")
+    else:
+        recorder._log(f"  ⚠ final_result is None — no final assistant message appended!")
+
+    tool_names = [t.name for t in tools]
+    recorder.record(
+        agent_id=f"{agent_id}_analyst",
+        agent_role=agent_role,
+        tools=tool_names,
+        messages=sft_messages,
+    )
+
+
+# ── downstream agent role mapping ──────────────────────────────────────────
+
+_DOWNSTREAM_ROLES: dict[str, str] = {
+    "bull": "多方辩手",
+    "bear": "空方辩手",
+    "quality_gate": "数据质量审核员",
+    "aggressive": "激进风控分析师",
+    "conservative": "保守风控分析师",
+    "neutral": "中性风控分析师",
+}
+
+
+def _record_downstream(agent_id: str, prompt, response: str) -> None:
+    """Record a single-turn (no-tools) downstream agent conversation for SFT.
+
+    Called by ``stream_invoke`` for debate/risk/quality nodes.  *prompt* is
+    always a plain string (the f-string the caller assembled); it becomes the
+    sole ``user`` message.  *agent_id* is e.g. ``"bull"`` or ``"quality_gate"``.
+    """
+    if not agent_id or agent_id not in _DOWNSTREAM_ROLES:
+        return
+
+    from tradingagents.agents.utils.sft_recorder import get_sft_recorder
+    recorder = get_sft_recorder()
+    if recorder is None:
+        return
+
+    agent_role = _DOWNSTREAM_ROLES[agent_id]
+    messages: list[dict] = [
+        {"role": "system", "content": f"你是{agent_role}。"},
+        {"role": "user", "content": str(prompt)},
+        {"role": "assistant", "content": response},
+    ]
+    recorder.record(agent_id=agent_id, agent_role=agent_role, tools=[], messages=messages)
+
+
+def _get_message_role(msg) -> str:
+    """Classify a LangChain message as 'system', 'user', 'assistant', or 'tool'."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+    if isinstance(msg, SystemMessage):
+        return "system"
+    if isinstance(msg, HumanMessage):
+        return "user"
+    if isinstance(msg, AIMessage):
+        return "assistant"
+    if isinstance(msg, ToolMessage):
+        return "tool"
+    return "unknown"
+
+
+def _msg_content(msg) -> str:
+    """Extract a plain-text content string from any LangChain message."""
+    raw = getattr(msg, "content", "")
+    return _extract_text_delta(raw) if raw else ""
 
 def create_msg_delete():
     def delete_messages(state):

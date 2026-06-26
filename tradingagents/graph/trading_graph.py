@@ -31,6 +31,7 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+from tradingagents.agents.utils.sft_recorder import start_sft_recording, stop_sft_recording
 
 
 class TradingAgentsGraph:
@@ -309,6 +310,9 @@ class TradingAgentsGraph:
         """Execute the graph and write the resulting state to disk and memory log."""
         init_agent_state, args, _ = self.prepare_graph_run(company_name, trade_date)
 
+        # Start SFT recording for this analysis task (no-op when disabled).
+        start_sft_recording(company_name, str(trade_date))
+
         try:
             if self.debug:
                 final_state = None
@@ -328,6 +332,7 @@ class TradingAgentsGraph:
             signal = self.finalize_graph_run(company_name, trade_date, final_state)
             return final_state, signal
         finally:
+            stop_sft_recording()
             self.close_graph_run()
 
     def _log_state(self, trade_date, final_state):

@@ -26,6 +26,7 @@ from rich.rule import Rule
 
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.agents.utils.sft_recorder import start_sft_recording, stop_sft_recording
 from cli.models import AnalystType
 from cli.utils import *
 from cli.announcements import fetch_announcements, display_announcements
@@ -975,6 +976,9 @@ def run_analysis(checkpoint: bool = False):
         callbacks=[stats_handler],
     )
 
+    # Start SFT recording for this analysis task (no-op when disabled).
+    start_sft_recording(selections["ticker"], selections["analysis_date"])
+
     # Initialize message buffer with selected analysts
     message_buffer.init_for_analysis(selected_analyst_keys)
 
@@ -1243,7 +1247,10 @@ def analyze(
         from tradingagents.graph.checkpointer import clear_all_checkpoints
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
-    run_analysis(checkpoint=checkpoint)
+    try:
+        run_analysis(checkpoint=checkpoint)
+    finally:
+        stop_sft_recording()
 
 
 if __name__ == "__main__":

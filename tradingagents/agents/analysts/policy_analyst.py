@@ -74,7 +74,13 @@ def create_policy_analyst(llm):
         chain = prompt | llm.bind_tools(tools)
 
         initial_msg = HumanMessage(content=state["company_of_interest"])
-        report = await run_react_loop(chain, tools, initial_msg, max_iterations=10)
+        rendered = prompt.invoke({"messages": [initial_msg]})
+        system_prompt_text = str(rendered.messages[0].content) if rendered.messages else ""
+
+        report = await run_react_loop(
+            chain, tools, initial_msg, max_iterations=10,
+            system_prompt_text=system_prompt_text,
+        )
 
         return {
             "policy_report": report,

@@ -32,6 +32,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_PROJECT_ROOT / ".env", override=True)
 
 from tradingagents.agents.analysts.registry import resolve_selected
+from tradingagents.agents.utils.sft_recorder import start_sft_recording, stop_sft_recording
 from tradingagents.dataflows.utils import safe_ticker_component
 from web.api.stages import detect_stage_events
 
@@ -290,6 +291,10 @@ def set_default(req: DefaultProviderReq) -> dict:
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest) -> dict:
     """Start a run in the background; return run_id immediately."""
+    # Canary: proves this endpoint code is actually the updated version.
+    from tradingagents.agents.utils.sft_recorder import _canary
+    _canary(f"ENDPOINT /api/analyze hit: ticker={req.ticker} date={req.trade_date}")
+
     run_id = uuid.uuid4().hex[:12]
     queue: asyncio.Queue = asyncio.Queue()
     # Register the run BEFORE creating the task. _run_graph's first action is
@@ -355,6 +360,13 @@ async def _run_graph(run_id: str, req: AnalyzeRequest) -> None:
         graph = TradingAgentsGraph(selected_analysts=selected, debug=True, config=config,
                                    callbacks=[stats])
         ticker = safe_ticker_component(req.ticker)
+
+        # Start SFT recording for this analysis task.
+        # Canary: prove this code path was reached.
+        from tradingagents.agents.utils.sft_recorder import _canary
+        _canary(f"web API _run_graph: about to start_sft_recording for {ticker} {req.trade_date}")
+        start_sft_recording(ticker, str(req.trade_date))
+
         init_state, args, _ = graph.prepare_graph_run(ticker, req.trade_date)
 
         # astream with both modes: custom = token/tool events, updates = stage deltas.
@@ -420,6 +432,7 @@ async def _run_graph(run_id: str, req: AnalyzeRequest) -> None:
                                              "traceback": traceback.format_exc()},
                                             ensure_ascii=False)})
     finally:
+        stop_sft_recording()
         await queue.put({"event": "_close", "data": ""})  # sentinel
 
 
