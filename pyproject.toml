@@ -33,7 +33,6 @@ dependencies = [
     "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",
     "yfinance>=0.2.63",
-    "streamlit>=1.45.0",
     "fpdf2>=2.8.6",
     "python-dotenv>=1.1.0",
     "mootdx>=0.10.0",
@@ -57,7 +56,6 @@ api = [
 
 [project.scripts]
 tradingagents = "cli.main:app"
-tradingagents-web = "web.launch:main"
 tradingagents-api = "web.api.launch:main"
 
 [tool.setuptools.packages.find]

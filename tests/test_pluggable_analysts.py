@@ -278,15 +278,3 @@ def test_quality_gate_only_grades_active_analysts():
     assert "新闻分析师" in summary
     assert "情绪分析师" not in summary  # deselected -> not graded
     assert "基本面分析师" not in summary
-
-
-# ---------- web: dynamic pipeline stages ----------
-
-def test_build_pipeline_stages_reflects_selection():
-    from web.progress import build_pipeline_stages
-    full = build_pipeline_stages(None)
-    assert [s["id"] for s in full[:7]] == [
-        "market", "social", "news", "fundamentals", "policy", "hot_money", "lockup",
-    ]
-    sub = build_pipeline_stages(["market", "news"])
-    assert [s["id"] for s in sub] == ["market", "news", "quality_gate", "debate", "trader", "risk", "pm"]
