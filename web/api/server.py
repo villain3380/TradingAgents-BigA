@@ -129,10 +129,11 @@ def list_analysts() -> list[dict]:
 
 # Provider display order + names — mirrors web/components/sidebar.py sidebar.
 _PROVIDERS: list[dict] = [
-    {"key": "minimax", "label": "MiniMax（推荐·国内直连）"},
+    {"key": "minimax", "label": "MiniMax"},
     {"key": "deepseek", "label": "DeepSeek"},
     {"key": "qwen", "label": "通义千问 Qwen"},
     {"key": "glm", "label": "智谱 GLM"},
+    {"key": "huoshan", "label": "火山方舟"},
     {"key": "openai", "label": "OpenAI"},
     {"key": "anthropic", "label": "Anthropic"},
     {"key": "google", "label": "Google Gemini"},

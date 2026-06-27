@@ -118,6 +118,8 @@ _PROVIDER_CONFIG = {
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
     "minimax": ("https://api.minimax.chat/v1", "MINIMAX_API_KEY"),
+    # 火山方舟（Volcengine Ark）— OpenAI 兼容网关，常用于中转 GLM/Doubao 等。
+    "huoshan": ("https://ark.cn-beijing.volces.com/api/coding/v3", "HUOSHAN_API_KEY"),
 }
 
 

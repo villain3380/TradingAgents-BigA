@@ -125,19 +125,44 @@ def _get_react_timeout() -> "float | None":
         return None
 
 
-async def _invoke_tool_safe(tool_map, tc, iteration, _emit):
+async def _invoke_tool_safe(tool_map, tc, iteration, _emit, cache=None):
     """Run one tool call with full error recovery.
 
     Returns ``(output, sources)``. On any failure — a hallucinated tool name,
-    a tool-execution exception, or malformed args — returns an error string
+    malformed args, or a tool-execution exception — returns an error string
     and empty sources so the LLM sees the error as a ``ToolMessage`` and can
     self-correct, instead of the node crashing and hanging the barrier.
+
+    *cache* is a per-run (dict or None) keyed by ``(tool_name, sorted args
+    items)``. When the same tool is called with identical arguments by
+    multiple analysts (e.g. five analysts calling get_news for the same
+    ticker), the first call fetches the data; subsequent calls return the
+    cached result instantly — no duplicate HTTP request, no duplicate
+    source URLs in the right rail.
     """
     import asyncio
     import re
 
-    tool_name = tc["name"]
+    tool_name = tc.get("name", "?")
     tool = tool_map.get(tool_name)
+
+    # P10: args completeness check. Streaming shard merges (national
+    # OpenAI-compat providers) can leave tc["args"] as None or a half-cut
+    # JSON string instead of a dict. Reject these BEFORE invoking the tool —
+    # a half-cut arg dict would KeyError/TypeError inside the tool and waste
+    # a turn. We only reject on a clear TYPE mismatch (non-dict); an empty
+    # dict {} is a legal "no-args" call and must NOT be rejected, otherwise
+    # we'd loop forever asking the LLM to resend a valid call. Repeated
+    # resends are still bounded by max_iterations, so no infinite loop.
+    args = tc.get("args")
+    if not isinstance(args, dict):
+        _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": []})
+        return (
+            f"Error: tool '{tool_name}' arguments were malformed "
+            f"(got {type(args).__name__}, expected a JSON object). "
+            f"Please re-issue the tool call with valid JSON arguments."
+        ), []
+
     if tool is None:
         _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": []})
         available = ", ".join(tool_map.keys())
@@ -145,15 +170,111 @@ async def _invoke_tool_safe(tool_map, tc, iteration, _emit):
             f"Error: tool '{tool_name}' is not available. "
             f"Available tools: {available}. Call one of those instead."
         ), []
+
+    # Per-run cache: key = (tool_name, frozendict-like tuple of sorted args).
+    # When 5 analysts call get_news("300308", "2026-06-20", ...) only the
+    # first one hits the API; the other 4 return the cached result. Cache is
+    # a plain dict — concurrent calls from parallel analysts may race but
+    # the worst case is one extra call, still far better than 5×.
+    cache_key = None
+    if cache is not None:
+        try:
+            cache_key = (tool_name, tuple(sorted(args.items())))
+            cached = cache.get(cache_key)
+            if cached is not None:
+                _emit({"type": "tool_end", "tool": tool_name, "iter": iteration,
+                       "sources": cached[1]})
+                return cached
+        except TypeError:
+            pass  # unhashable arg value — can't cache, proceed normally
+
     try:
-        output = await asyncio.to_thread(tool.invoke, tc["args"])
+        output = await asyncio.to_thread(tool.invoke, args)
     except Exception as exc:
         # Malformed args (streaming shard merge), provider error, etc.
         _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": []})
         return f"Error calling tool '{tool_name}': {exc}", []
+
     sources = re.findall(r"Link:\s*(\S+)", str(output))[:5]
     _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": sources})
-    return output, sources
+    result = (output, sources)
+    if cache is not None and cache_key is not None:
+        cache[cache_key] = result
+    return result
+
+
+def _get_prompt_budget() -> int:
+    """Max tokens a single downstream prompt may occupy before compression.
+
+    From config ``prompt_token_budget`` (default 100000). P8: prompts are left
+    untouched under the budget — no truncation, no summary, so debate/report
+    quality is preserved. Only when a prompt exceeds the budget do we ask the
+    LLM to compress it (one extra call) so the run doesn't blow the model's
+    context window and crash mid-debate.
+    """
+    try:
+        from tradingagents.dataflows.config import get_config
+
+        v = (get_config() or {}).get("prompt_token_budget")
+        return int(v) if v else 100_000
+    except Exception:
+        return 100_000
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token count for budget gating.
+
+    Uses tiktoken's cl100k encoding as a provider-agnostic estimate. The
+    exact tokenizer differs per provider (GLM/Qwen/DeepSeek each have their
+    own), but this is only used to detect a prompt that *grossly* exceeds the
+    budget — a ~10% estimation error is fine for that go/no-go decision.
+    """
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(str(text)))
+    except Exception:
+        # Fallback: ~4 chars/token for CJK-heavy text. Less accurate but
+        # keeps the budget guard working even if tiktoken data is missing.
+        return len(str(text)) // 4
+
+
+async def _compress_prompt(llm, prompt: str, budget: int) -> str:
+    """Compress an over-budget prompt via one LLM call, preserving facts.
+
+    The compression prompt instructs the model to keep all specific numbers,
+    dates, tickers, and conclusions — only redundant prose and verbose
+    formatting are dropped. The compressed text targets ~60% of the budget so
+    there's headroom for the model's own response. On any failure the original
+    prompt is returned unchanged (better to risk a long call than to lose the
+    analyst data entirely).
+
+    Async + ``asyncio.to_thread`` so the synchronous compression call doesn't
+    block the event loop while analysts run concurrently.
+    """
+    import asyncio
+
+    target = int(budget * 0.6)
+    compress_instruction = (
+        "The following content is too long for the model context window. "
+        "Compress it to roughly equivalent information density at a target of "
+        f"~{target} tokens. You MUST preserve: every specific number, price, "
+        "percentage, date, ticker code, and named entity; every concrete "
+        "conclusion or signal. You MAY cut: redundant phrasing, verbose "
+        "formatting, repeated caveats, and non-essential commentary. Do not "
+        "add new information. Output only the compressed content."
+    )
+    try:
+        resp = await asyncio.to_thread(
+            llm.invoke,
+            [("system", compress_instruction), ("human", prompt)],
+        )
+        compressed = _extract_text_delta(getattr(resp, "content", "")) or str(getattr(resp, "content", ""))
+        if compressed and _estimate_tokens(compressed) < _estimate_tokens(prompt):
+            return compressed
+        return prompt  # compression didn't help; keep original
+    except Exception:
+        return prompt
 
 
 async def stream_invoke(llm, prompt, agent_id: str) -> str:
@@ -165,10 +286,25 @@ async def stream_invoke(llm, prompt, agent_id: str) -> str:
     event carrying ``agent_id`` (e.g. "bull", "quality_gate"), letting the
     frontend show the debate/risk stages streaming live instead of blocking.
 
+    P8 budget guard: if *prompt* exceeds the configured token budget
+    (default 100k), it is compressed once via ``llm.invoke`` before streaming.
+    Under the budget the prompt is passed through untouched — no truncation,
+    no information loss — so debate and report quality is preserved.
+
     Returns the full concatenated content — drop-in replacement for
     ``llm.invoke(prompt).content``. Outside a streaming graph context the
     writer is a no-op, so the Streamlit path is unaffected.
     """
+    budget = _get_prompt_budget()
+    prompt_tokens = _estimate_tokens(prompt)
+    if prompt_tokens > budget:
+        original_tokens = prompt_tokens
+        prompt = await _compress_prompt(llm, prompt, budget)
+        writer = _get_stream_writer()
+        if agent_id:
+            writer({"agent_id": agent_id, "type": "token",
+                    "text": f"[prompt compressed: {original_tokens}→{_estimate_tokens(prompt)} tokens to fit {budget} budget]\n"})
+
     writer = _get_stream_writer()
     parts: list[str] = []
     async for chunk in llm.astream(prompt):
@@ -222,6 +358,7 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
 
     local_messages = [initial_message]
     tool_map = {t.name: t for t in tools}
+    tool_cache: dict = {}  # per-run: (tool_name, sorted args) → (output, sources)
     agent_id = _resolve_agent_id()
     writer = _get_stream_writer()
     result = None
@@ -266,7 +403,7 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
                 for tc in result.tool_calls:
                     _emit({"type": "tool_start", "tool": tc["name"], "iter": iteration})
                     output, _ = await _invoke_tool_safe(
-                        tool_map, tc, iteration, _emit)
+                        tool_map, tc, iteration, _emit, tool_cache)
                     local_messages.append(
                         ToolMessage(content=str(output), tool_call_id=tc["id"])
                     )

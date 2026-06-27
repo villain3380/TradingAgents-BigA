@@ -204,7 +204,7 @@ export function ConfigPanel({ value, onChange, disabled, providers, defaultProvi
         <select className="input" value={value.llm_provider} onChange={(e) => onProvider(e.target.value)} disabled={disabled}>
           {providers.map((p) => (
             <option key={p.key} value={p.key}>
-              {p.custom ? `🧩 ${p.label}` : p.label}
+              {p.label}
             </option>
           ))}
           <option value={CUSTOM_NEW}>＋ 新增自定义…</option>
@@ -240,7 +240,7 @@ export function ConfigPanel({ value, onChange, disabled, providers, defaultProvi
           <div className="config-row">
             <label className="config-label">API Key</label>
             <input className="input" type="password" value={cApiKey} onChange={(e) => setCApiKey(e.target.value)} placeholder="填入 API Key（存本地 settings.json）" disabled={disabled} />
-            <span className="hint">推荐直接填，无需改 .env</span>
+            <span className="hint">直接填入即可，无需改 .env</span>
           </div>
           <div className="config-row">
             <label className="config-label">快速模型</label>

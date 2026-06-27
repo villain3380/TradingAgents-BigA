@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-load_dotenv(".env.enterprise", override=False)
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.live import Live

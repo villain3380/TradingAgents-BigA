@@ -42,6 +42,12 @@ DEFAULT_CONFIG = {
     # would block them all. This bounds a single analyst; on timeout it
     # degrades to a partial report instead of hanging the pipeline. None = off.
     "react_loop_timeout": 300,
+    # P8: max tokens a single downstream prompt (bull/bear/risk debators/
+    # quality gate) may occupy before it is compressed. Under the budget the
+    # prompt is passed through untouched (no truncation, no info loss). Only
+    # over-budget prompts get one LLM compression call so the run doesn't blow
+    # the model context window mid-debate. Estimate uses tiktoken cl100k.
+    "prompt_token_budget": 100_000,
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
     "output_language": "Chinese",

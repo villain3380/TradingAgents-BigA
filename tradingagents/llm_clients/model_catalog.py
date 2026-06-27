@@ -116,6 +116,16 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
+    "huoshan": {
+        "quick": [
+            ("GLM Latest - 智谱 GLM via 方舟中转", "glm-latest"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("GLM Latest - 智谱 GLM via 方舟中转", "glm-latest"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     # OpenRouter: fetched dynamically. Azure: any deployed model name.
     "ollama": {
         "quick": [

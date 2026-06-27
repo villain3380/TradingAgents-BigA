@@ -63,6 +63,7 @@ export default function App() {
           postStages={state.postStages}
           signal={state.signal}
           runId={runId}
+          cards={state.cards}
         />
       </div>
 

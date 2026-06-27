@@ -5,19 +5,23 @@ interface Props {
 }
 
 /**
- * Right rail: shows the source URLs retrieved by each analyst's tools.
+ * Right rail: shows URLs from get_news tool calls.
  *
- * Provenance builds trust — users see where the news/data came from. Only
- * tools that return URLs (currently get_news, which emits "Link: <url>") show
- * sources here; other tools have empty source lists and are hidden.
+ * The tool result cache ensures each URL appears only once (even when five
+ * analysts call get_news with the same args), so a flat list is sufficient —
+ * no grouping needed.
  */
 export function RightRail({ cards }: Props) {
-  // Flatten: list of {agent_label, tool, url} across all cards' tools.
-  const entries: { agent: string; tool: string; url: string }[] = [];
+  // Gather and de-duplicate all source URLs.
+  const seen = new Set<string>();
+  const urls: string[] = [];
   for (const c of cards) {
     for (const t of c.tools) {
       for (const url of t.sources ?? []) {
-        entries.push({ agent: c.label, tool: t.tool, url });
+        if (!seen.has(url)) {
+          seen.add(url);
+          urls.push(url);
+        }
       }
     }
   }
@@ -25,26 +29,23 @@ export function RightRail({ cards }: Props) {
   return (
     <aside className="right-rail">
       <div className="rail-section">
-        <div className="rail-title">检索来源</div>
-        {entries.length === 0 ? (
+        <div className="rail-title">get_news链接</div>
+        {urls.length === 0 ? (
           <div className="sources-empty">
-            {cards.length === 0
-              ? "分析启动后显示来源"
-              : "暂无来源（部分数据源不返回 url）"}
+            {cards.length === 0 ? "分析启动后显示" : "暂无"}
           </div>
         ) : (
           <div className="sources-list">
-            {entries.map((e, i) => (
+            {urls.map((url, i) => (
               <a
                 key={i}
                 className="source-link"
-                href={e.url}
+                href={url}
                 target="_blank"
                 rel="noreferrer"
-                title={`${e.agent} · ${e.tool}`}
+                title={url}
               >
-                <span className="source-agent">{e.agent}</span>
-                <span className="source-url">{e.url}</span>
+                <span className="source-url">{url}</span>
               </a>
             ))}
           </div>

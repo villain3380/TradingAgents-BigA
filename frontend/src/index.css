@@ -141,7 +141,6 @@ body {
   border-left: 2px solid var(--accent);
 }
 .source-link:hover { background: var(--border); }
-.source-agent { color: var(--accent); font-size: 0.7rem; font-weight: 600; }
 .source-url {
   color: var(--muted);
   font-size: 0.68rem;

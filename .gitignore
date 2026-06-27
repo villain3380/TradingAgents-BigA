@@ -248,3 +248,5 @@ frontend/.DS_Store
 .tradingagents/
 **/TradingAgentsStrategy_logs/
 
+# train sft
+train/
