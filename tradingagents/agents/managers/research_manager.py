@@ -55,6 +55,7 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
             "bear_history": investment_debate_state.get("bear_history", ""),
             "bull_history": investment_debate_state.get("bull_history", ""),
             "current_response": investment_plan,
+            "current_speaker": investment_debate_state.get("current_speaker", ""),
             "count": investment_debate_state["count"],
         }
 

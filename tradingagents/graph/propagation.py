@@ -30,6 +30,7 @@ class Propagator:
                     "bear_history": "",
                     "history": "",
                     "current_response": "",
+                    "current_speaker": "",
                     "judge_decision": "",
                     "count": 0,
                 }

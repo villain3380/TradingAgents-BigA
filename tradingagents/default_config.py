@@ -25,9 +25,23 @@ DEFAULT_CONFIG = {
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     "anthropic_effort": None,           # "high", "medium", "low"
+    # Structured-output gating for reasoning models. Reasoning models reject
+    # tool_choice, so PM/Trader/Research Manager fall back to free-text for
+    # them. Detection is config-driven first (exact, case-insensitive name
+    # match), then a conservative name heuristic. Use these two lists to
+    # override either direction — e.g. force-treat a custom reasoning model as
+    # thinking, or stop a heuristic false-positive. The default glm-latest is
+    # NOT a reasoning model and is handled correctly out of the box.
+    "thinking_models": [],              # e.g. ["my-custom-reasoner"]
+    "non_thinking_models": [],          # e.g. ["some-model-matching-a-pattern"]
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,
+    # Per-analyst ReAct loop timeout in seconds. Analysts fan out in parallel
+    # but fan-in to the Quality Gate is a barrier — one slow/stuck analyst
+    # would block them all. This bounds a single analyst; on timeout it
+    # degrades to a partial report instead of hanging the pipeline. None = off.
+    "react_loop_timeout": 300,
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
     "output_language": "Chinese",

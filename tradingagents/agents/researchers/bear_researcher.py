@@ -60,6 +60,7 @@ Deliver a compelling bear argument grounded in A-share market realities. Refute 
             "bear_history": bear_history + "\n" + argument,
             "bull_history": investment_debate_state.get("bull_history", ""),
             "current_response": argument,
+            "current_speaker": "bear",
             "count": investment_debate_state["count"] + 1,
         }
 

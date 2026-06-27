@@ -27,35 +27,88 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Model name substrings that indicate a "thinking"/reasoning model. These
-# models reject tool_choice (function-calling), so structured output via
-# function_calling fails with HTTP 400 ("Thinking mode does not support this
-# tool_choice"). Skip the structured attempt for them and go straight to
-# free-text — same end result as the runtime fallback, but without the failed
-# API call + noisy error log on every run.
-_THINKING_MARKERS = ("reasoner", "think", "latest", "o1", "o3", "r1")
+# Reasoning/thinking models reject tool_choice (function-calling), so structured
+# output via function_calling fails with HTTP 400 ("Thinking mode does not
+# support this tool_choice"). For these models we skip the structured attempt
+# and go straight to free-text — same end result as the runtime fallback, but
+# without the failed API call + noisy error log on every run.
+#
+# Detection is intentionally conservative. A previous version matched broad
+# substrings ("latest", "think") which mis-flagged ordinary models like
+# ``glm-latest`` as reasoning models, silently disabling structured output for
+# the default config. We now prefer an explicit config list and only fall back
+# to high-confidence name patterns. Provider-layer guards (e.g. DeepSeek's
+# with_structured_output raising NotImplementedError for deepseek-reasoner)
+# remain the last line of defense.
+#
+# Pattern shapes:
+# - Substring: ``reasoner`` / ``deepseek-r`` catch the named reasoning variants.
+# - Prefix: OpenAI's o-series is named ``o1``, ``o1-mini``, ``o3``, ... — they
+#   start with ``o`` + digit, so a prefix check avoids both false-positives
+#   (``foo1``) and false-negatives (bare ``o1`` with no separator).
+# - Anchored ``-r1`` / ``r1-``: catches ``xxx-r1`` / ``r1-xxx`` without
+#   matching ``r1`` buried inside another token.
+_REASONING_SUBSTRINGS = ("reasoner", "deepseek-r")
+_REASONING_PREFIXES = ("o1", "o3", "o4")  # OpenAI o-series reasoning models
+_REASONING_ANCHORED = ("-r1", "r1-")      # r1 family, separator on at least one side
 
 
-def _is_thinking_model(llm: Any) -> bool:
-    """Heuristic: does this LLM look like a thinking/reasoning model?"""
-    name = ""
+def _resolve_model_name(llm: Any) -> str:
+    """Best-effort model name extraction across LangChain chat-model variants."""
     for attr in ("model_name", "model", "deployment_name"):
         v = getattr(llm, attr, None)
         if isinstance(v, str) and v:
-            name = v
-            break
+            return v
+    return ""
+
+
+def _is_thinking_model(llm: Any) -> bool:
+    """Decide whether ``llm`` is a reasoning/thinking model.
+
+    Priority:
+
+    1. Explicit config: ``thinking_models`` (force-treat as reasoning) and
+       ``non_thinking_models`` (force-treat as NOT reasoning). The latter lets
+       users override a heuristic miss. Both are case-insensitive exact matches.
+    2. Conservative name-pattern heuristic (``_REASONING_PATTERNS``).
+
+    Returns False when the model name can't be determined — the provider-layer
+    NotImplementedError guard and the runtime 400 fallback still apply.
+    """
+    name = _resolve_model_name(llm)
     if not name:
         return False
     lname = name.lower()
-    return any(m in lname for m in _THINKING_MARKERS)
+
+    try:
+        from tradingagents.dataflows.config import get_config
+
+        cfg = get_config() or {}
+    except Exception:  # pragma: no cover - config must always be available
+        cfg = {}
+
+    forced = cfg.get("thinking_models")
+    if isinstance(forced, list) and lname in [str(m).lower() for m in forced]:
+        return True
+    excluded = cfg.get("non_thinking_models")
+    if isinstance(excluded, list) and lname in [str(m).lower() for m in excluded]:
+        return False
+
+    if any(s in lname for s in _REASONING_SUBSTRINGS):
+        return True
+    if any(lname.startswith(p) for p in _REASONING_PREFIXES):
+        return True
+    return any(p in lname for p in _REASONING_ANCHORED)
 
 
 def bind_structured(llm: Any, schema: type[T], agent_name: str) -> Optional[Any]:
     """Return ``llm.with_structured_output(schema)`` or ``None`` if unsupported.
 
     Returns None (free-text) when:
+    - the model is a thinking/reasoning model (rejects tool_choice at the API),
+      as decided by ``_is_thinking_model`` (explicit config first, then a
+      conservative name heuristic)
     - the provider doesn't support with_structured_output (NotImplementedError)
-    - the model is a thinking/reasoning model (rejects tool_choice at the API)
 
     Logs a warning when binding fails so the user understands the agent will
     use free-text generation. For thinking models, logs at INFO since it's an

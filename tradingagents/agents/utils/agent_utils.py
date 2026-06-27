@@ -1,4 +1,4 @@
-from langchain_core.messages import HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import (
@@ -109,6 +109,53 @@ def _get_stream_writer():
         return lambda _data: None
 
 
+def _get_react_timeout() -> "float | None":
+    """Per-analyst ReAct loop timeout in seconds, from config (None = off).
+
+    Bounds a single analyst so a slow or stuck one degrades to a failure
+    report instead of hanging the Quality Gate barrier — analysts fan out in
+    parallel but fan-in is a barrier, so one slow node blocks them all.
+    """
+    try:
+        from tradingagents.dataflows.config import get_config
+
+        v = (get_config() or {}).get("react_loop_timeout")
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
+async def _invoke_tool_safe(tool_map, tc, iteration, _emit):
+    """Run one tool call with full error recovery.
+
+    Returns ``(output, sources)``. On any failure — a hallucinated tool name,
+    a tool-execution exception, or malformed args — returns an error string
+    and empty sources so the LLM sees the error as a ``ToolMessage`` and can
+    self-correct, instead of the node crashing and hanging the barrier.
+    """
+    import asyncio
+    import re
+
+    tool_name = tc["name"]
+    tool = tool_map.get(tool_name)
+    if tool is None:
+        _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": []})
+        available = ", ".join(tool_map.keys())
+        return (
+            f"Error: tool '{tool_name}' is not available. "
+            f"Available tools: {available}. Call one of those instead."
+        ), []
+    try:
+        output = await asyncio.to_thread(tool.invoke, tc["args"])
+    except Exception as exc:
+        # Malformed args (streaming shard merge), provider error, etc.
+        _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": []})
+        return f"Error calling tool '{tool_name}': {exc}", []
+    sources = re.findall(r"Link:\s*(\S+)", str(output))[:5]
+    _emit({"type": "tool_end", "tool": tool_name, "iter": iteration, "sources": sources})
+    return output, sources
+
+
 async def stream_invoke(llm, prompt, agent_id: str) -> str:
     """Stream a free-text LLM call and forward tokens to the SSE frontend.
 
@@ -183,50 +230,66 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
         if agent_id is not None:
             writer({**data, "agent_id": agent_id})
 
-    for iteration in range(max_iterations):
-        collected = None  # AIMessageChunk accumulator
-        async for chunk in chain.astream(local_messages):
-            # Text token → emit a streaming event.
-            text = _extract_text_delta(chunk.content)
-            if text:
-                _emit({"type": "token", "text": text, "iter": iteration})
-            # Tool-call fragments → accumulate only; emit the name once known.
-            if chunk.tool_call_chunks:
-                names = [c.get("name") for c in chunk.tool_call_chunks if c.get("name")]
-                if names:
-                    _emit({"type": "tool_call", "names": names, "iter": iteration})
-            collected = chunk if collected is None else collected + chunk
+    timeout = _get_react_timeout()
+    try:
+        # ``asyncio.timeout(None)`` is a no-op, so an unset timeout disables
+        # the guard rather than firing immediately.
+        async with asyncio.timeout(timeout):
+            for iteration in range(max_iterations):
+                collected = None  # AIMessageChunk accumulator
+                async for chunk in chain.astream(local_messages):
+                    # Text token → emit a streaming event.
+                    text = _extract_text_delta(chunk.content)
+                    if text:
+                        _emit({"type": "token", "text": text, "iter": iteration})
+                    # Tool-call fragments → accumulate only; emit the name once known.
+                    if chunk.tool_call_chunks:
+                        names = [c.get("name") for c in chunk.tool_call_chunks if c.get("name")]
+                        if names:
+                            _emit({"type": "tool_call", "names": names, "iter": iteration})
+                    collected = chunk if collected is None else collected + chunk
 
-        if collected is None:
-            break
-        result = collected  # accumulated: content joined, tool_calls merged
+                if collected is None:
+                    break
+                result = collected  # accumulated: content joined, tool_calls merged
 
-        # No tool calls → the model produced its final report.
-        if not result.tool_calls:
-            _emit({"type": "report_done", "iter": iteration})
-            final_text = _extract_text_delta(result.content) or result.content
-            _record_react_loop(agent_id, tools, system_prompt_text,
-                               local_messages, result)
+                # No tool calls → the model produced its final report.
+                if not result.tool_calls:
+                    _emit({"type": "report_done", "iter": iteration})
+                    final_text = _extract_text_delta(result.content) or result.content
+                    _record_react_loop(agent_id, tools, system_prompt_text,
+                                       local_messages, result)
+                    return final_text
+
+                # Tool calls → execute them, emit start/end events, continue the loop.
+                local_messages.append(result)
+                for tc in result.tool_calls:
+                    _emit({"type": "tool_start", "tool": tc["name"], "iter": iteration})
+                    output, _ = await _invoke_tool_safe(
+                        tool_map, tc, iteration, _emit)
+                    local_messages.append(
+                        ToolMessage(content=str(output), tool_call_id=tc["id"])
+                    )
+
+            # max_iterations reached without a final report.
+            final_text = _extract_text_delta(getattr(result, "content", "")) or "分析未完成（达到最大迭代次数）"
+            _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
             return final_text
-
-        # Tool calls → execute them, emit start/end events, continue the loop.
-        local_messages.append(result)
-        import re
-        for tc in result.tool_calls:
-            _emit({"type": "tool_start", "tool": tc["name"], "iter": iteration})
-            output = await asyncio.to_thread(tool_map[tc["name"]].invoke, tc["args"])
-            # Extract source URLs from the tool output (get_news returns
-            # "Link: <url>" lines) so the frontend can show provenance.
-            sources = re.findall(r"Link:\s*(\S+)", str(output))[:5]
-            _emit({"type": "tool_end", "tool": tc["name"], "iter": iteration,
-                   "sources": sources})
-            local_messages.append(
-                ToolMessage(content=str(output), tool_call_id=tc["id"])
-            )
-
-    final_text = _extract_text_delta(getattr(result, "content", "")) or "分析未完成（达到最大迭代次数）"
-    _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
-    return final_text
+    except TimeoutError:
+        # A slow/stuck analyst must not hang the Quality Gate barrier —
+        # degrade to a partial report so the pipeline keeps moving.
+        final_text = (_extract_text_delta(getattr(result, "content", ""))
+                      or "分析未完成（节点超时）")
+        _emit({"type": "report_done", "iter": -1})
+        _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
+        return final_text
+    except Exception as exc:
+        # Any unexpected failure degrades to a failure report so the node
+        # never crashes the barrier; the rest of the pipeline still runs.
+        final_text = f"分析失败（{type(exc).__name__}: {exc}）"
+        _emit({"type": "report_done", "iter": -1})
+        _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
+        return final_text
 
 
 def _record_react_loop(
@@ -388,21 +451,6 @@ def _msg_content(msg) -> str:
     """Extract a plain-text content string from any LangChain message."""
     raw = getattr(msg, "content", "")
     return _extract_text_delta(raw) if raw else ""
-
-def create_msg_delete():
-    def delete_messages(state):
-        """Clear messages and add placeholder for Anthropic compatibility"""
-        messages = state["messages"]
-
-        # Remove all messages
-        removal_operations = [RemoveMessage(id=m.id) for m in messages]
-
-        # Add a minimal placeholder message
-        placeholder = HumanMessage(content="Continue")
-
-        return {"messages": removal_operations + [placeholder]}
-
-    return delete_messages
 
 
         

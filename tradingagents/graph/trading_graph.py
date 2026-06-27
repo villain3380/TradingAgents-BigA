@@ -355,6 +355,9 @@ class TradingAgentsGraph:
                 "current_response": final_state["investment_debate_state"][
                     "current_response"
                 ],
+                "current_speaker": final_state["investment_debate_state"].get(
+                    "current_speaker", ""
+                ),
                 "judge_decision": final_state["investment_debate_state"][
                     "judge_decision"
                 ],

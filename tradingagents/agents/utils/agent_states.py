@@ -13,6 +13,10 @@ class InvestDebateState(TypedDict):
     ]  # Bullish Conversation history
     history: Annotated[str, "Conversation history"]  # Conversation history
     current_response: Annotated[str, "Latest response"]  # Last response
+    # Explicit speaker token ("bull" / "bear" / "") driving debate routing.
+    # Routing must NOT depend on the prose prefix of current_response — that
+    # couples control flow to LLM output and breaks if the prefix is localized.
+    current_speaker: Annotated[str, "Speaker token of the latest response"]
     judge_decision: Annotated[str, "Final judge decision"]  # Last response
     count: Annotated[int, "Length of the current conversation"]  # Conversation length
 

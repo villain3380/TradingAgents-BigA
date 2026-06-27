@@ -1,8 +1,8 @@
-<h1 align="center">TradingAgents-Astock</h1>
+<h1 align="center">TradingAgents-BigA</h1>
 
 <p align="center">
-  基于 <a href="https://github.com/TauricResearch/TradingAgents">TauricResearch/TradingAgents</a>（65K ⭐）的 A 股深度特化 fork<br>
-  全 Apache 2.0 开源 · pip install 即跑 · 零外部服务依赖
+  基于 <a href="https://github.com/TauricResearch/TradingAgents">TauricResearch/TradingAgents</a>（88K ⭐）和 <a href="https://github.com/simonlin1212/TradingAgents-astock">simonlin1212/TradingAgents-astock（1.4K ⭐）<br>
+  全 Apache 2.0 开源
 </p>
 
 <p align="center">
@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/simonlin1212/tradingagents-astock/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/simonlin1212/tradingagents-astock?style=social"/></a>
-  <a href="https://github.com/simonlin1212/tradingagents-astock/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/simonlin1212/tradingagents-astock?style=social"/></a>
+  <a href="https://github.com/villain3380/TradingAgents-BigA/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/villain3380/TradingAgents-BigA?style=social"/></a>
+  <a href="https://github.com/villain3380/TradingAgents-BigA/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/villain3380/TradingAgents-BigA?style=social"/></a>
   <a href="https://arxiv.org/abs/2412.20138"><img alt="论文" src="https://img.shields.io/badge/论文-arXiv_2412.20138-B31B1B?logo=arxiv"/></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue"/></a>
   <a href="./CHANGES_FROM_UPSTREAM.md"><img alt="改动记录" src="https://img.shields.io/badge/改动记录-CHANGES-orange"/></a>
@@ -21,128 +21,19 @@
 
 ## 目录
 
-- [为什么做这个 Fork](#为什么做这个-fork)
-- [与上游对比](#与上游对比)
-- [v0.3 架构升级（并行 · 流式 · 可插拔）](#v03-架构升级并行--流式--可插拔)
+- [目录](#目录)
 - [架构概览](#架构概览)
 - [7 个 Analyst 角色](#7-个-analyst-角色)
+  - [原版 4 角色（A 股适配）](#原版-4-角色a-股适配)
+  - [A 股特化 3 角色（新增）](#a-股特化-3-角色新增)
 - [数据源](#数据源)
 - [快速开始](#快速开始)
-- [Web UI](#web-ui)
-- [配置说明](#配置说明)
+  - [环境准备](#环境准备)
+  - [启动](#启动)
 - [项目结构](#项目结构)
 - [致谢](#致谢)
-- [Donate](#donate)
 - [许可证](#许可证)
-
----
-
-## 为什么做这个 Fork
-
-原版 TradingAgents 是一个出色的多 Agent 投研框架，但它针对美股设计：数据走 Yahoo Finance / Alpha Vantage，分析师不懂 A 股制度，辩论和决策完全面向美股市场。
-
-**本 Fork 的目标**：把 TradingAgents 的多 Agent 辩论架构真正落地到 A 股，不是简单翻译，而是从数据层、Agent 角色、交易规则三个维度做深度特化。
-
-### 核心改造
-
-| 维度 | 原版 | 本 Fork |
-|------|------|---------|
-| **数据源** | Yahoo Finance / Alpha Vantage | mootdx + 东财 + 新浪 + 同花顺（全免费直连） |
-| **Analyst 角色** | 4 个（市场/情绪/新闻/基本面） | **7 个**（+政策分析师/游资追踪/解禁监控） |
-| **交易规则** | 美股（T+0、无涨跌停） | A 股（T+1、涨跌停、最小手数、交易时段） |
-| **输出语言** | 英文 | 中文报告（内部辩论保持英文以保证推理质量） |
-| **Alpha 基准** | SPY | 沪深 300（CSI 300） |
-
----
-
-## 与上游对比
-
-| 特性 | 原版 TradingAgents | **本 Fork** |
-|------|-------------------|-------------|
-| 许可证 | Apache 2.0 | **全 Apache 2.0** |
-| 部署依赖 | pip install | **开箱即用** |
-| A 股数据 | ❌ | **mootdx + 东财 + 新浪 + 同花顺（直连 HTTP）** |
-| A 股特化角色 | ❌ | **政策/游资/解禁 3 个深度角色** |
-| A 股交易约束 | ❌ | **T+1/涨跌停/手数/ST 全覆盖** |
-
----
-
-## v0.3 架构升级（并行 · 流式 · 可插拔）
-
-v0.3 在不破坏原业务逻辑（数据层、辩论、风控、交易、记忆）的前提下，对执行模型、输出方式、配置方式做了三项架构级升级。
-
-### 1. 7 分析师并行可插拔
-
-原版 7 个分析师**串行**执行，加减一个要改 4 处硬编码。v0.3 改成：
-
-- **单一事实源** `tradingagents/agents/analysts/registry.py`：`AnalystSpec(key/label/icon/report_field/create)` + `ANALYST_REGISTRY`。加/减分析师只动 registry 一行，图/质量门控/前端零改动。
-- **Send fan-out + barrier fan-in**：`setup.py` 用 LangGraph `Send` 并行启动选中分析师，全部完成后 barrier 进入 Quality Gate。分析师互不依赖（各只读 `ticker`+`date`，各写独立 report 字段）。
-- **节点内自包含 ReAct** `run_react_loop`：局部 messages 不写回共享 state，消除了图层面的 per-analyst ToolNode / 条件边 / Msg Clear 机制（原版那套被你嫌"复杂"的脚手架直接删掉）。
-- **前端可勾选**：Web 侧边栏 multiselect 启用/禁用分析师，未选中的不运行、不评分、不显示。
-
-> 插拔契约：加分析师 = 写一个 `create_xxx(llm)` 工厂 + registry 加一行。`setup.py` / `quality_gate.py` / `web/progress.py` / `web/runner.py` 全部自动适配。
-
-### 2. Token 级流式输出
-
-原版分析师跑完才出整段报告（块级），v0.3 改成逐 token 流式：
-
-- **LangGraph custom stream 穿透**：节点内 `get_stream_writer()` 发 token 事件，外层 `astream(stream_mode=["custom","updates"])` 消费——custom 流 = token/工具事件，updates 流 = 阶段完成。比 `dispatch_custom_event` + callback relay + 跨线程 Queue 简单一整层。
-- **agent_id 自动获取**：节点内 `get_config()["metadata"]["langgraph_node"]` → `"market_analyst"` → `"market"`，7 个 analyst 文件零改动，并行事件各带各的 node 名不串台。
-- **下游也流式**：`stream_invoke(llm, prompt, agent_id)` helper 让质量门控 / 多空辩论 / 风控辩论 6 个节点也逐字流，不再"卡死"假象。
-- **思考模型静默降级**：`bind_structured` 检测思考模型（glm-latest/deepseek-reasoner 等），跳过 structured output 走自由文本，避免 `tool_choice unsupported` 的 400 噪音。
-
-### 3. 配置数据化 + 前端管理（settings.json）
-
-原版 LLM 配置散落在 `.env`（每 provider 一个写死的变量名）+ 代码硬编码映射，改 key 要重启。v0.3 改成：
-
-- **`~/.tradingagents/settings.json`** 存所有 LLM 配置：默认 provider + 每 provider 的 model/base_url/api_key + 自定义 provider。原子写，不入仓库（家目录）。
-- **key 优先级**：settings.json api_key > .env 环境变量 > 代码默认。前端改 key 运行时生效，**不用重启**。
-- **自定义 provider**：前端可新增任意 OpenAI 兼容 provider（如火山方舟中转），填名称/base_url/key，保存后即可选用。内置 provider 冲突保护、可编辑可删除。
-- **key 安全**：API 响应只返回 `has_key` 布尔，绝不返回明文；前端用密码框 mask，编辑时不回填。
-- **`.env` 仍兼容**：老用户/批量预设可继续用 .env，settings.json 优先。
-
-### 4. 新增 FastAPI 流式服务（与 Streamlit 共存）
-
-新增独立入口 `tradingagents-api`（`web/api/`），提供 SSE 端点供新 TS 前端消费：
-
-| 端点 | 作用 |
-|------|------|
-| `GET /api/analysts` | 分析师元数据 |
-| `GET /api/providers` | provider 列表 + model 选项 + 已存配置（不含 key） |
-| `POST /api/analyze` | 启动分析，返回 run_id |
-| `GET /api/stream/{run_id}` | SSE 流：token / 工具 / 阶段完成 / done / error |
-| `POST /api/stop/{run_id}` | 停止运行（cancel task，等真正取消） |
-| `GET /api/report/{run_id}/md\|pdf` | 下载 Markdown / PDF 报告 |
-
-原 Streamlit UI（`tradingagents-web`）完全保留，两入口共享 `TradingAgentsGraph` 核心，互不影响。
-
-### 升级前后对比
-
-| 维度 | v0.2（原 fork） | v0.3 |
-|------|----------------|------|
-| 分析师执行 | 串行 | **并行 fan-out** |
-| 加减分析师 | 改 4 处 | **改 registry 1 处** |
-| 输出 | 块级（跑完才出） | **token 级流式** |
-| 下游辩论 | 块级 | **流式（不再卡死假象）** |
-| LLM 配置 | .env 硬编码 + 重启 | **settings.json + 前端管理 + 运行时生效** |
-| 自定义 provider | ❌ | **✅ 前端新增** |
-| 前端 | Streamlit 表单 | **Streamlit + 新 TS 流式 UI（7 卡片 + markdown）** |
-| 停止运行 | ❌ | **✅ cancel + 等真停** |
-| 报告下载 | Streamlit 内 | **Streamlit + API 端点** |
-
-### 启动新 TS 前端
-
-```bash
-# 终端 1：API server
-tradingagents-api          # 或 .venv/Scripts/python.exe -m uvicorn web.api.server:app --port 8000
-
-# 终端 2：前端
-cd frontend && npm install && npm run dev   # :5173
-```
-
-浏览器开 `http://localhost:5173`：左侧配置侧栏（可折叠）+ 中间 7 分析师卡片（固定高度内部滚动，点开 Modal 放大看 markdown 报告）+ 右侧实时统计/进度/下载。
-
-> 需要 `pip install -e ".[api]"` 装 FastAPI 依赖；前端 `npm install` 在 `frontend/` 下。
+- [免责声明](#免责声明)
 
 ---
 
@@ -224,12 +115,12 @@ cd frontend && npm install && npm run dev   # :5173
 
 ## 快速开始
 
-### 1. 环境准备
+### 环境准备
 
 ```bash
 # Python >= 3.10
-git clone https://github.com/simonlin1212/tradingagents-astock.git
-cd tradingagents-astock
+git clone https://github.com/simonlin1212/TradingAgents-BigA.git
+cd TradingAgents-BigA
 pip install -e .
 
 # 如需使用 Google Gemini 模型（可选）：
@@ -238,198 +129,79 @@ pip install -e ".[google]"
 
 > **装完即可用，无需 Docker。** 安装后直接跑 `streamlit run web/app.py`（Web UI）或 `tradingagents`（CLI）即可，详见下方「Web UI」「CLI 方式」两节。Docker 仅是可选的部署方式，本地开发不需要。
 
-### 2. 配置 LLM
-
-> **必须使用 API Key**，不能用 Claude/ChatGPT 订阅版。每次分析需 30-50 次 LLM 调用，只有 API 模式支持。
-
-在项目根目录创建 `.env` 文件，按你选择的供应商配置：
-
-```bash
-# ── 方案 A：MiniMax（推荐，国内直连，性价比高）──────────
-MINIMAX_API_KEY=sk-xxx
-# 申请地址：https://platform.minimaxi.com/
-
-# ── 方案 B：DeepSeek ─────────────────────────────────
-DEEPSEEK_API_KEY=sk-xxx
-# 申请地址：https://platform.deepseek.com/
-
-# ── 方案 C：智谱 GLM ─────────────────────────────────
-ZHIPU_API_KEY=xxx
-# 申请地址：https://open.bigmodel.cn/
-
-# ── 方案 D：通义千问 Qwen ────────────────────────────
-DASHSCOPE_API_KEY=sk-xxx
-# 申请地址：https://dashscope.console.aliyun.com/
-
-# ── 方案 E：OpenAI ───────────────────────────────────
-OPENAI_API_KEY=sk-xxx
-
-# ── 方案 F：Anthropic ────────────────────────────────
-ANTHROPIC_API_KEY=sk-ant-xxx
-
-# ── 方案 G：Kimi（Anthropic 兼容 API）────────────────
-ANTHROPIC_AUTH_TOKEN=your-kimi-token
-```
-
-### 3. 运行分析
-
-根据你选择的供应商修改 config：
-
-```python
-from tradingagents.graph.trading_graph import TradingAgentsGraph
-
-# ── MiniMax 示例（推荐）─────────────────────────────
-config = {
-    "llm_provider": "minimax",
-    "deep_think_llm": "MiniMax-M2.7",
-    "quick_think_llm": "MiniMax-M2.7-highspeed",
-    "output_language": "Chinese",
-}
-
-# ── DeepSeek 示例 ───────────────────────────────────
-# config = {
-#     "llm_provider": "deepseek",
-#     "deep_think_llm": "deepseek-chat",
-#     "quick_think_llm": "deepseek-chat",
-#     "output_language": "Chinese",
-# }
-
-# ── Anthropic + Kimi 示例 ───────────────────────────
-# config = {
-#     "llm_provider": "anthropic",
-#     "deep_think_llm": "claude-sonnet-4-6",
-#     "quick_think_llm": "claude-sonnet-4-6",
-#     "backend_url": "https://api.kimi.com/coding/",
-#     "output_language": "Chinese",
-# }
-
-ta = TradingAgentsGraph(debug=True, config=config)
-final_state, decision = ta.propagate("688017", "2026-05-12")
-print(decision)
-```
-
-### 4. CLI 方式
-
-```bash
-tradingagents            # 交互式 CLI
-tradingagents --help     # 查看所有选项
-```
-
 ---
-
-## Web UI
-
-内置 Streamlit 可视化界面，支持在侧边栏选择 LLM 供应商和模型，输入股票代码即可一键分析，适合不写代码的用户。
 
 ### 启动
 
 ```bash
-# 方式一：命令行启动（推荐）
-tradingagents-web
-
-# 方式二：直接运行
-streamlit run web/app.py
+tradingagents-api
+cd frontend && npm run dev
 ```
 
-打开浏览器访问 `http://localhost:8501`。
+浏览器开 `http://localhost:5173`：左侧配置侧栏（可折叠）+ 中间 7 分析师卡片（固定高度内部滚动，点开 Modal 放大看 markdown 报告）+ 右侧实时统计/进度/下载。
 
-### 功能
-
-- **模型自选**：侧边栏支持 9 个 LLM 供应商切换（MiniMax/DeepSeek/Qwen/GLM/OpenAI/Anthropic/Google/xAI/Ollama）
-- **一键分析**：输入 6 位 A 股代码 + 日期，点击「开始分析」
-- **实时进度**：12 阶段 pipeline 实时显示（7 分析师 → 质量门控 → 辩论 → 风控 → 决策），所有已完成阶段的报告均可展开查看
-- **完整报告**：信号卡片（Buy/Hold/Sell）、7 份分析师报告、多空辩论、风控评估
-- **报告导出**：一键下载 **Markdown**（零依赖，永远可用）或 **PDF** 完整分析报告（PDF 自动适配 Windows/macOS/Linux 中文字体）
-- **历史记录**：自动保存并展示所有历史分析
-
-### 截图
-
-<p align="center">
-  <img src="assets/web-ui-welcome.png" width="80%" alt="Web UI 欢迎页"/>
-</p>
-
----
-
-## 配置说明
-
-所有配置通过 `config` 字典传入，完整选项：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `llm_provider` | `"minimax"` | LLM 提供商：`minimax` / `deepseek` / `qwen` / `glm` / `openai` / `anthropic` / `google` / `xai` / `ollama` |
-| `deep_think_llm` | `"MiniMax-M2.7"` | Research Manager + Portfolio Manager 用的模型 |
-| `quick_think_llm` | `"MiniMax-M2.7-highspeed"` | 所有 Analyst / Researcher / Trader 用的模型 |
-| `backend_url` | `None` | 自定义 API 端点 / 第三方中转网关。可在 Web UI 侧边栏填写，或用 `.env` 的 `BACKEND_URL`；方便国内通过代理访问 Claude / OpenAI |
-| `output_language` | `"Chinese"` | 报告输出语言（内部辩论始终英文） |
-| `max_debate_rounds` | `1` | Bull vs Bear 辩论轮数 |
-| `max_risk_discuss_rounds` | `1` | 风险三方辩论轮数 |
-| `data_vendors` | 全部 `"a_stock"` | 数据供应商路由 |
-| `checkpoint_enabled` | `False` | 启用 SQLite 断点续跑 |
-| `memory_log_max_entries` | `None` | 交易记忆最大条目数 |
-
----
-
-## 常见问题排错
-
-**Q: 用 DeepSeek/通义/智谱，却报 `OpenAIError: The api_key client option must be set ... OPENAI_API_KEY`？**
-每个供应商用**各自的环境变量**，不是 OPENAI_API_KEY：DeepSeek=`DEEPSEEK_API_KEY`、通义=`DASHSCOPE_API_KEY`、智谱=`ZHIPU_API_KEY`、MiniMax=`MINIMAX_API_KEY`、xAI=`XAI_API_KEY`、OpenRouter=`OPENROUTER_API_KEY`。在项目根目录 `.env` 里设置对应变量后**重启**程序。（v0.2.12 起缺 key 会直接提示该用哪个变量名。）
-
-**Q: 导出 PDF 报 `UnicodeEncodeError: 'latin-1' codec can't encode`？**
-你的环境里装了**旧版 `fpdf`（pyfpdf）**，它和本项目用的 `fpdf2` 都以 `fpdf` 名称导入、互相冲突。执行：`pip uninstall -y fpdf && pip install "fpdf2>=2.8.6"`。实在不行可改用「下载 Markdown」导出（零依赖，永远可用）。
-
-**Q: Docker 里导出 PDF 报「未找到中文字体」？**
-v0.2.12 起 Dockerfile 已内置 `fonts-noto-cjk`，重新 `docker build` 即可。旧镜像可临时 `apt install fonts-noto-cjk`，或改用 Markdown 导出。
-
-**Q: Docker 启动报 `[Errno 13] Permission denied: /home/appuser/.tradingagents/cache`？**
-旧版镜像里没预建数据目录，`docker-compose` 的命名卷挂上来时被 Docker 建成 `root` 属主，而容器内进程以 `appuser` 运行、写不进去。v0.2.14 起 Dockerfile 已预建 `/home/appuser/.tradingagents`（cache/logs/memory）并归属 appuser，命名卷会继承该属主。**升级方式**：`git pull` 后 `docker compose build --no-cache` 重建镜像；若想保留旧数据卷可先 `docker run --rm -v tradingagents_data:/d alpine chown -R 1000:1000 /d` 修正属主，否则 `docker volume rm tradingagents_data` 后重建即可。
-
-**Q: 部分分析师报告（情绪/新闻/基本面/政策/游资/解禁）空白不显示？**
-这些报告由对应 Analyst 调用数据工具后生成，**空报告会被自动跳过不显示**。数据源本身是健康的（腾讯/mootdx/同花顺/东财实测出数）；报告为空通常是**所选模型 tool-call 能力弱**（如部分 deepseek/minimax 轻量模型不稳定地调用工具）。建议换用 tool-call 更稳的模型（deepseek-chat / 通义 / GLM-4 / Claude / GPT 等），或重试。
+> 需要 `pip install -e ".[api]"` 装 FastAPI 依赖；前端 `npm install` 在 `frontend/` 下。
 
 ---
 
 ## 项目结构
 
 ```
-TradingAgents-Astock/
+TradingAgents-BigA/
 ├── tradingagents/
 │   ├── agents/
-│   │   ├── analysts/          # 7 个分析师
+│   │   ├── analysts/          # 7 个分析师（含 registry.py 单一事实源）
 │   │   │   ├── market_analyst.py
 │   │   │   ├── social_media_analyst.py
 │   │   │   ├── news_analyst.py
 │   │   │   ├── fundamentals_analyst.py
 │   │   │   ├── policy_analyst.py        # A 股特化
 │   │   │   ├── hot_money_tracker.py     # A 股特化
-│   │   │   └── lockup_watcher.py        # A 股特化
+│   │   │   ├── lockup_watcher.py        # A 股特化
+│   │   │   └── registry.py              # AnalystSpec 注册表（加/减分析师只改这里）
 │   │   ├── researchers/       # Bull / Bear 研究员
 │   │   ├── risk_mgmt/         # 激进 / 保守 / 中立 辩手
 │   │   ├── managers/          # Research Manager + Portfolio Manager
 │   │   ├── trader/            # Trader（A 股交易约束）
-│   │   └── utils/             # 状态定义、工具函数
+│   │   ├── quality_gate.py    # 数据质量门控（硬检查 + LLM 复审）
+│   │   ├── schemas.py         # 结构化输出 Pydantic 模型
+│   │   └── utils/             # 状态定义、工具函数、SFT 录制器
+│   │       ├── agent_utils.py          # run_react_loop / stream_invoke
+│   │       ├── structured.py           # with_structured_output 封装
+│   │       ├── sft_recorder.py         # SFT 训练数据采集（JSONL + debug 日志）
+│   │       └── *_tools.py              # 各类 @tool 包装
 │   ├── dataflows/
 │   │   ├── a_stock.py         # A 股数据 vendor（直连 HTTP API，零第三方库）
-│   │   ├── interface.py       # 数据接口抽象层
+│   │   ├── interface.py       # 数据接口抽象层 + vendor 路由
 │   │   └── ...
-│   └── graph/
-│       ├── trading_graph.py   # 主入口：TradingAgentsGraph
-│       ├── setup.py           # LangGraph 拓扑定义
-│       ├── propagation.py     # 状态初始化与传播
-│       ├── reflection.py      # 交易反思（CSI 300 基准）
-│       └── conditional_logic.py
+│   ├── graph/
+│   │   ├── trading_graph.py   # 主入口：TradingAgentsGraph
+│   │   ├── setup.py           # LangGraph 拓扑（Send fan-out 并行）
+│   │   ├── propagation.py     # 状态初始化与传播
+│   │   ├── reflection.py      # 交易反思（沪深 300 基准）
+│   │   └── conditional_logic.py
+│   ├── llm_clients/           # 多供应商 LLM 客户端（OpenAI/Anthropic/Google/...）
+│   ├── default_config.py      # 默认配置（含 sft_record 开关）
+│   └── settings.py            # ~/.tradingagents/settings.json 读写
 ├── web/
-│   ├── app.py                 # Streamlit 主入口
-│   ├── runner.py              # 后台线程运行分析
-│   ├── progress.py            # 线程安全进度追踪
-│   ├── history.py             # 历史记录扫描
-│   ├── pdf_export.py          # PDF 报告生成
-│   ├── launch.py              # CLI 启动器
-│   └── components/            # UI 组件
-│       ├── sidebar.py         # 侧边栏（输入 + 历史）
-│       ├── progress_panel.py  # 实时进度面板
-│       └── report_viewer.py   # 报告展示
-├── test_astock.py             # E2E 集成测试
+│   ├── api/                   # FastAPI + SSE 服务（tradingagents-api）
+│   │   ├── server.py          # /api/analyze + SSE 流式
+│   │   ├── launch.py          # uvicorn 启动入口
+│   │   └── stages.py          # 阶段事件检测
+│   ├── pdf_export.py          # PDF 报告生成（CJK 字体自检测）
+│   └── stock_display.py       # 股票名→代码解析与展示
+├── frontend/                  # TypeScript + React 流式 UI（Vite :5173）
+│   └── src/                   # 7 分析师卡片 + 实时统计 + 报告下载
+├── cli/                       # 交互式 CLI（tradingagents）
+├── data/
+│   └── data_viewer.py         # SFT JSONL 数据查看 Web 工具（人工筛选）
+├── docs/
+│   └── SFT_FORMAT.md          # SFT 训练数据格式规范
+├── tests/                     # pytest 测试套件
+├── scripts/
+│   └── smoke_structured_output.py  # 结构化输出冒烟测试
 ├── CHANGES_FROM_UPSTREAM.md   # 与上游的完整改动记录
+├── CHANGELOG.md               # 版本变更日志
 ├── NOTICE                     # Apache 2.0 归属声明
 ├── LICENSE                    # Apache 2.0 许可证
 └── pyproject.toml             # 包定义与依赖
@@ -439,7 +211,7 @@ TradingAgents-Astock/
 
 ## 致谢
 
-本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 开源项目进行 A 股特化改造。感谢原作者的出色工作和 Apache 2.0 开源精神。
+本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 和 [simonlin1212/TradingAgents-astock](https://github.com/simonlin1212/TradingAgents-astock) 开源项目进行改造。感谢原作者们的出色工作和 Apache 2.0 开源精神。
 
 **原始论文**：[TradingAgents: Multi-Agents LLM Financial Trading Framework](https://arxiv.org/abs/2412.20138)
 
@@ -450,20 +222,6 @@ TradingAgents-Astock/
 [Apache License 2.0](./LICENSE)
 
 本项目是 TauricResearch/TradingAgents 的 fork，继承 Apache 2.0 许可证。详见 [NOTICE](./NOTICE)。
-
-## Donate
-
-如果这个工具帮到了你的投研工作流，欢迎请作者喝杯咖啡 ☕
-
-<p align="center">
-  <img src="./assets/wechat-sponsor.jpg" width="240" alt="微信赞赏码">
-</p>
-<p align="center">
-  <a href="https://ifdian.net/a/simonlin">爱发电</a> ·
-  <a href="https://buymeacoffee.com/simonlin1212">Buy Me a Coffee</a>
-</p>
-
-> 想要什么功能？欢迎开 [Issue](https://github.com/simonlin1212/tradingagents-astock/issues) 提需求，赞助者的 Issue 优先处理。
 
 ---
 
