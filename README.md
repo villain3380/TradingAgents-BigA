@@ -23,9 +23,7 @@
 
 - [目录](#目录)
 - [架构概览](#架构概览)
-- [7 个 Analyst 角色](#7-个-analyst-角色)
-  - [原版 4 角色（A 股适配）](#原版-4-角色a-股适配)
-  - [A 股特化 3 角色（新增）](#a-股特化-3-角色新增)
+- [7 个 Analyst 角色（A 股适配）](#7-个-analyst-角色a-股适配)
 - [数据源](#数据源)
 - [快速开始](#快速开始)
   - [环境准备](#环境准备)
@@ -70,9 +68,7 @@
 
 ---
 
-## 7 个 Analyst 角色
-
-### 原版 4 角色（A 股适配）
+## 7 个 Analyst 角色（A 股适配）
 
 | 角色 | 职责 | 数据工具 |
 |------|------|---------|
@@ -80,14 +76,9 @@
 | 💬 舆情分析师 | 社交媒体情绪、散户讨论热度 | `get_news` |
 | 📰 新闻分析师 | 行业新闻、公告、宏观事件 | `get_news`, `get_global_news`, `get_insider_transactions` |
 | 📊 基本面分析师 | 财报三表、盈利能力、估值 | `get_fundamentals`, `get_balance_sheet`, `get_cashflow`, `get_income_statement` |
-
-### A 股特化 3 角色（新增）
-
-| 角色 | 职责 | 数据工具 | 为什么需要 |
-|------|------|---------|-----------|
-| 🏛️ 政策分析师 | 监管政策、产业政策、窗口指导 | `get_news`, `get_global_news` | A 股是政策市，政策变化直接影响板块轮动 |
-| 🔥 游资追踪师 | 龙虎榜、大单流向、主力资金动态 | `get_stock_data`, `get_news`, `get_insider_transactions` | 游资是 A 股短线定价的核心力量 |
-| 🔓 解禁监控师 | 限售股解禁、大股东减持、股权质押 | `get_insider_transactions`, `get_news`, `get_fundamentals` | 解禁是 A 股特有的重大供给冲击因素 |
+| 🏛️ 政策分析师 | 监管政策、产业政策、窗口指导   | `get_news`, `get_global_news`                              |
+| 🔥 游资追踪师  | 龙虎榜、大单流向、主力资金动态  | `get_stock_data`, `get_news`, `get_insider_transactions`   |
+| 🔓 解禁监控师  | 限售股解禁、大股东减持、股权质押 | `get_insider_transactions`, `get_news`, `get_fundamentals` |
 
 所有 7 个 Analyst 的报告会流入后续的 Bull/Bear 辩论和三方风险辩论，确保 A 股特色因素贯穿整条决策链。
 

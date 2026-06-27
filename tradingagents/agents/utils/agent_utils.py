@@ -258,7 +258,7 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
                     _emit({"type": "report_done", "iter": iteration})
                     final_text = _extract_text_delta(result.content) or result.content
                     _record_react_loop(agent_id, tools, system_prompt_text,
-                                       local_messages, result)
+                                       local_messages, result, status="ok")
                     return final_text
 
                 # Tool calls → execute them, emit start/end events, continue the loop.
@@ -273,7 +273,9 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
 
             # max_iterations reached without a final report.
             final_text = _extract_text_delta(getattr(result, "content", "")) or "分析未完成（达到最大迭代次数）"
-            _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
+            _record_react_loop(agent_id, tools, system_prompt_text, local_messages,
+                               result, status="incomplete",
+                               degradation_reason="max_iterations")
             return final_text
     except TimeoutError:
         # A slow/stuck analyst must not hang the Quality Gate barrier —
@@ -281,15 +283,38 @@ async def run_react_loop(chain, tools, initial_message, max_iterations: int = 10
         final_text = (_extract_text_delta(getattr(result, "content", ""))
                       or "分析未完成（节点超时）")
         _emit({"type": "report_done", "iter": -1})
-        _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
+        _record_react_loop(agent_id, tools, system_prompt_text, local_messages,
+                           result, status="degraded",
+                           degradation_reason="timeout")
         return final_text
     except Exception as exc:
         # Any unexpected failure degrades to a failure report so the node
         # never crashes the barrier; the rest of the pipeline still runs.
         final_text = f"分析失败（{type(exc).__name__}: {exc}）"
         _emit({"type": "report_done", "iter": -1})
-        _record_react_loop(agent_id, tools, system_prompt_text, local_messages, result)
+        _record_react_loop(agent_id, tools, system_prompt_text, local_messages,
+                           result, status="degraded",
+                           degradation_reason=f"exception:{type(exc).__name__}")
         return final_text
+
+
+def _tools_to_openai_schema(tools: list) -> list[dict]:
+    """Render LangChain tools as the OpenAI tool-schema list for SFT records.
+
+    Returns ``[{"type": "function", "function": {"name", "description",
+    "parameters": {...}}}]`` via langchain's ``convert_to_openai_tool``. On
+    any failure (rare; exotic tool without a parseable schema) falls back to
+    a minimal ``{"type":"function","function":{"name":...}}`` stub per tool so
+    the record is still valid and the run never crashes.
+    """
+    schema: list[dict] = []
+    for t in tools:
+        try:
+            from langchain_core.utils.function_calling import convert_to_openai_tool
+            schema.append(convert_to_openai_tool(t))
+        except Exception:
+            schema.append({"type": "function", "function": {"name": getattr(t, "name", "unknown")}})
+    return schema
 
 
 def _record_react_loop(
@@ -298,12 +323,19 @@ def _record_react_loop(
     system_prompt_text: str,
     local_messages: list,
     final_result,  # AIMessage — the last assistant response (not yet in local_messages)
+    status: str = "ok",
+    degradation_reason: str = "",
 ) -> None:
     """Build SFT-format messages from a completed ReAct loop and submit to the recorder.
 
     *local_messages* contains the conversation history *excluding* the final
     assistant message (which is passed separately as *final_result* because
     ``run_react_loop`` only appends tool-calling turns to the list).
+
+    *status* marks the outcome so the recorder can flag contaminated samples
+    (P7): ``"ok"`` for a genuine final report, ``"incomplete"`` for a
+    max-iteration cap, ``"degraded"`` for a timeout/exception. Non-ok records
+    are kept for diagnosis but must be filtered out before SFT training.
 
     Every early-return path writes a diagnostic to the recorder's debug log
     (when a recorder is active) so there are never silent failures.
@@ -325,13 +357,24 @@ def _record_react_loop(
         )
         return
 
-    # ── early-return: empty system prompt ──
+    # An empty system prompt means the prompt template wasn't rendered — the
+    # SFT sample would lack a system message, degrading training quality. Mark
+    # it incomplete rather than silently recording a degraded sample.
     if not system_prompt_text:
         recorder._log(
             f"⚠ _record_react_loop({agent_id}): system_prompt_text is EMPTY. "
             "The analyst node may not have rendered the prompt template. "
-            "SFT messages will lack a system message — training data quality degraded."
+            "SFT messages will lack a system message — marked incomplete."
         )
+        if status == "ok":
+            status = "incomplete"
+            degradation_reason = "empty_system_prompt"
+
+    # No final assistant message means the loop never produced a report — the
+    # caller is recording a fallback string, not real model output.
+    if final_result is None and status == "ok":
+        status = "incomplete"
+        degradation_reason = "no_final_assistant_message"
 
     # Resolve agent_role from the registry.
     from tradingagents.agents.analysts.registry import ANALYST_BY_KEY
@@ -340,6 +383,7 @@ def _record_react_loop(
 
     recorder._log(
         f"_record_react_loop: agent_id={agent_id} role={agent_role} "
+        f"status={status} reason={degradation_reason or '(none)'} "
         f"local_msgs={len(local_messages)} tools={[t.name for t in tools]} "
         f"final_result_type={type(final_result).__name__ if final_result is not None else 'None'}"
     )
@@ -353,7 +397,8 @@ def _record_react_loop(
     if tool_call_id_to_name:
         recorder._log(f"  tool_call_id → name map: {tool_call_id_to_name}")
 
-    # Assemble SFT messages: system → user → assistant → user(tool_result) → ...
+    # Assemble SFT messages (OpenAI tool-calling shape, see docs/SFT_FORMAT.md):
+    # system → user → assistant(tool_calls, content=null) → tool(name,tool_call_id) → ... → assistant(final)
     sft_messages: list[dict] = []
 
     if system_prompt_text:
@@ -364,17 +409,32 @@ def _record_react_loop(
         if role == "user":
             sft_messages.append({"role": "user", "content": _msg_content(msg)})
         elif role == "assistant":
-            entry: dict = {"role": "assistant", "content": _msg_content(msg)}
             if hasattr(msg, "tool_calls") and msg.tool_calls:
-                entry["tool_calls"] = [
-                    {"id": tc["id"], "name": tc["name"], "args": tc["args"]}
-                    for tc in msg.tool_calls
-                ]
-            sft_messages.append(entry)
+                # Tool-call turn: content is null, tool_calls carry the
+                # nested {type,id,function:{name,arguments}} shape. arguments
+                # is kept as a dict (structured) per SFT_FORMAT.md.
+                sft_messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "id": tc["id"],
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": tc["args"],
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ],
+                })
+            else:
+                sft_messages.append({"role": "assistant", "content": _msg_content(msg)})
         elif role == "tool":
             sft_messages.append({
                 "role": "tool",
                 "content": str(getattr(msg, "content", "")),
+                "name": tool_call_id_to_name.get(getattr(msg, "tool_call_id", ""), ""),
                 "tool_call_id": getattr(msg, "tool_call_id", ""),
             })
         else:
@@ -388,12 +448,14 @@ def _record_react_loop(
     else:
         recorder._log(f"  ⚠ final_result is None — no final assistant message appended!")
 
-    tool_names = [t.name for t in tools]
+    tools_schema = _tools_to_openai_schema(tools)
     recorder.record(
         agent_id=f"{agent_id}_analyst",
         agent_role=agent_role,
-        tools=tool_names,
+        tools=tools_schema,
         messages=sft_messages,
+        status=status,
+        degradation_reason=degradation_reason,
     )
 
 

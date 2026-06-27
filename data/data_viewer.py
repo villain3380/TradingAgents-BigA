@@ -295,7 +295,7 @@ kbd { background:rgba(255,255,255,.1); padding:1px 5px; border-radius:3px; font-
   <nav id="sidebar">
     <div class="section">
       <h3>🔍 Filter</h3>
-      <input id="filter-box" type="text" placeholder="agent:market ticker:300308 has:tools text:关键词..." oninput="applyFilter()">
+      <input id="filter-box" type="text" placeholder="agent:market status:ok has:tools text:关键词..." oninput="applyFilter()">
     </div>
     <div class="section" style="font-size:11px;color:var(--muted)">
       <kbd>←</kbd><kbd>→</kbd> nav &nbsp; <kbd>g</kbd> good &nbsp; <kbd>b</kbd> bad &nbsp; <kbd>s</kbd> skip &nbsp; <kbd>f</kbd> filter
@@ -401,6 +401,9 @@ function applyFilter() {
       } else if (p.startsWith('role:')) {
         const v = p.slice(5);
         records = records.filter(r => r.agent_role.includes(v));
+      } else if (p.startsWith('status:')) {
+        const v = p.slice(7).toLowerCase();
+        records = records.filter(r => (r.status || 'ok').toLowerCase() === v);
       } else {
         // free-text search across agent_id + role + messages
         const v = p.toLowerCase();
@@ -457,18 +460,26 @@ function renderMain() {
     } else if (role === 'tool') {
       cls = 'msg-tool';
       const tid = (m.tool_call_id || '?').slice(0,24);
-      body = `<details><summary>🔗 tool_call_id: <span class="tid">${escHtml(tid)}…</span></summary>
+      const tname = m.name || '';
+      const nameTag = tname ? `<span class="tid">${escHtml(tname)}</span> · ` : '';
+      body = `<details><summary>🔗 ${nameTag}tool_call_id: <span class="tid">${escHtml(tid)}…</span></summary>
         <pre>${escHtml(m.content || '')}</pre></details>`;
     } else if (role === 'assistant') {
       const tcs = m.tool_calls;
       if (tcs && tcs.length > 0) {
         cls = 'msg-assistant has-tools';
-        let tcHtml = tcs.map(tc =>
-          `<div class="tc-block">
-            <span class="fn">⚡ ${escHtml(tc.name||'?')}</span>
-            <div class="args">${escHtml(JSON.stringify(tc.args||{},null,2))}</div>
-          </div>`
-        ).join('');
+        // OpenAI tool-calling shape: {type:"function", id, function:{name, arguments}}
+        let tcHtml = tcs.map(tc => {
+          const fn = tc.function || {};
+          const fnName = fn.name || tc.name || '?';
+          const fnArgs = fn.arguments != null ? fn.arguments : tc.args;
+          const argsStr = typeof fnArgs === 'string' ? fnArgs : JSON.stringify(fnArgs || {}, null, 2);
+          return `<div class="tc-block">
+            <span class="fn">⚡ ${escHtml(fnName)}</span>
+            <div class="args">${escHtml(argsStr)}</div>
+          </div>`;
+        }).join('');
+        // content is null on a pure tool-call turn; render only if present
         body = tcHtml + (m.content ? `<div class="msg-content">${renderMd(m.content)}</div>` : '');
       } else {
         cls = 'msg-assistant no-tools';
@@ -478,13 +489,23 @@ function renderMain() {
     return `<div class="msg ${cls}">${body}</div>`;
   }).join('');
 
-  const toolsHtml = (rec.tools || []).map(t => `<span class="tool-chip">⚡${escHtml(t)}</span>`).join('');
+  // tools is the OpenAI schema list [{type:"function",function:{name,...}}] (or [] for no-tool nodes)
+  const toolName = t => (t && t.function && t.function.name) || (typeof t === 'string' ? t : '?');
+  const toolsHtml = (rec.tools || []).map(t => `<span class="tool-chip" title="${escHtml(JSON.stringify(t))}">⚡${escHtml(toolName(t))}</span>`).join('');
+
+  // status badge — surfaces P7 contamination so reviewers can spot non-ok records
+  const status = rec.status || 'ok';
+  const statusLabel = {ok:'✓ ok', incomplete:'⚠ incomplete', degraded:'✗ degraded'}[status] || status;
+  const statusCls = `tag-${status==='ok'?'good':status==='degraded'?'bad':'skip'}`;
+  const reason = rec.degradation_reason ? ` · ${escHtml(rec.degradation_reason)}` : '';
+  const statusHtml = `<span class="tag ${statusCls}" title="训练前请过滤 status==ok">${statusLabel}${reason}</span>`;
 
   main.innerHTML = `
     <div class="record">
       <div class="record-header">
         <span class="agent-id">${escHtml(rec.agent_id)}</span>
         <span class="agent-role">${escHtml(rec.agent_role)}</span>
+        ${statusHtml}
         <span style="font-size:11px;color:var(--muted)">📅 ${escHtml(rec.task?.trade_date||'?')} · 🏷 ${escHtml(rec.task?.ticker||'?')}</span>
         <span class="tools">${toolsHtml}</span>
       </div>

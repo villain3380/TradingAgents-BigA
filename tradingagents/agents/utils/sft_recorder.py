@@ -59,11 +59,13 @@ def _message_preview(msg: dict, max_len: int = 120) -> str:
         return f"user content={_content_preview(msg.get('content',''), max_len)}"
     if role == "tool":
         tid = msg.get("tool_call_id", "")
-        return f"tool id={tid[:20]}… content={_content_preview(msg.get('content',''), max_len)}"
+        name = msg.get("name", "?")
+        return f"tool name={name} id={tid[:20]}… content={_content_preview(msg.get('content',''), max_len)}"
     if role == "assistant":
         tcs = msg.get("tool_calls")
         if tcs:
-            names = [tc.get("name", "?") for tc in tcs]
+            # OpenAI shape: tc["function"]["name"]
+            names = [tc.get("function", {}).get("name", "?") for tc in tcs]
             return f"assistant(tool_calls) → {names}"
         return f"assistant(final) content={_content_preview(msg.get('content',''), max_len)}"
     return f"{role} {_content_preview(str(msg), max_len)}"
@@ -122,7 +124,10 @@ def _validate_messages(messages: list[dict]) -> list[str]:
     # Content sanity
     for i, m in enumerate(messages):
         if m.get("role") == "assistant":
-            has_text = bool(m.get("content", "").strip())
+            # content may be null on a tool-call turn (legal OpenAI shape);
+            # only flag when there's neither text nor tool_calls.
+            content = m.get("content")
+            has_text = bool(content) and bool(str(content).strip())
             has_tools = bool(m.get("tool_calls"))
             if not has_text and not has_tools:
                 warnings.append(f"SANITY: assistant at idx {i} has neither content nor tool_calls")
@@ -194,15 +199,43 @@ class SFTRecorder:
         self,
         agent_id: str,
         agent_role: str,
-        tools: list[str],
+        tools: list[dict[str, Any]],
         messages: list[dict[str, Any]],
+        *,
+        status: str = "ok",
+        degradation_reason: str = "",
     ) -> None:
-        """Append one agent's complete conversation to the recording buffer."""
+        """Append one agent's complete conversation to the recording buffer.
+
+        ``tools`` is the OpenAI tool-schema list
+        (``[{"type": "function", "function": {"name", "description",
+        "parameters": {...}}}]``) for ReAct agents, or ``[]`` for no-tool
+        nodes. ``messages`` follows the OpenAI tool-calling message shape
+        (see docs/SFT_FORMAT.md): assistant tool-call turns carry
+        ``content: null`` and ``tool_calls``; tool results carry both
+        ``tool_call_id`` and ``name``.
+
+        ``status`` marks the run's outcome so downstream SFT pipelines can
+        filter out contaminated samples without losing diagnostic data:
+
+        - ``"ok"``         — the agent produced a genuine final report
+        - ``"incomplete"`` — hit max_iterations / empty system prompt / no
+                              final assistant message; the "answer" is a
+                              fixed fallback string, not real model output
+        - ``"degraded"``   — node timed out or raised; P3 degraded the node
+                              to a failure report instead of crashing
+
+        Non-``ok`` records are STILL written (debug value) but carry
+        ``degradation_reason``; train on ``status == "ok"`` only.
+        """
         self._record_count += 1
         idx = self._record_count
 
+        tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+
         self._log("-" * 56)
-        self._log(f"RECORD #{idx}: agent_id={agent_id}  role={agent_role}  tools={tools}")
+        self._log(f"RECORD #{idx}: agent_id={agent_id}  role={agent_role}  tools={tool_names}")
+        self._log(f"  status={status}  reason={degradation_reason or '(none)'}")
         self._log(f"  message count: {len(messages)}")
 
         # Role sequence for quick scan
@@ -227,18 +260,23 @@ class SFTRecorder:
             if m.get("role") == "system" and not m.get("content", "").strip():
                 self._log(f"  ⚠ msg[{i}]: system message has EMPTY content!")
             if m.get("role") == "assistant" and i == len(messages) - 1:
-                content = m.get("content", "")
-                if not content or not content.strip():
+                # Final assistant must have real text content. A tool-call
+                # turn (content null + tool_calls) is fine mid-conversation
+                # but must NOT be the last message.
+                content = m.get("content")
+                if not content or not str(content).strip():
                     self._log(f"  ⚠ msg[{i}]: FINAL assistant message has EMPTY content!")
 
-        # Actually store
+        # Actually store — field order matches docs/SFT_FORMAT.md
         try:
             rec = {
                 "agent_id": agent_id,
                 "agent_role": agent_role,
                 "task": {"ticker": self.ticker, "trade_date": self.trade_date},
-                "tools": tools,
+                "status": status,
+                "degradation_reason": degradation_reason,
                 "messages": messages,
+                "tools": tools,
             }
             self.records.append(rec)
 
@@ -287,6 +325,19 @@ class SFTRecorder:
                 aid = rec.get("agent_id", "?")
                 agent_counts[aid] = agent_counts.get(aid, 0) + 1
             self._log(f"  per agent: {agent_counts}")
+
+            # Status breakdown — surfaces SFT data contamination at a glance.
+            # Only status=="ok" records are safe to train on; non-ok are kept
+            # for diagnosis (P7: stop polluting the SFT flywheel).
+            status_counts: dict[str, int] = {}
+            for rec in self.records:
+                s = rec.get("status", "ok")
+                status_counts[s] = status_counts.get(s, 0) + 1
+            self._log(f"  status breakdown: {status_counts}")
+            non_ok = sum(c for s, c in status_counts.items() if s != "ok")
+            if non_ok:
+                self._log(f"  ⚠ {non_ok} non-ok record(s) — filter on status==\"ok\" before SFT training")
+            logger.info("SFT status breakdown: %s (train on ok only)", status_counts)
 
             # Message count stats
             msg_counts = [len(r["messages"]) for r in self.records]
