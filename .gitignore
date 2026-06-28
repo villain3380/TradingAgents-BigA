@@ -248,5 +248,8 @@ frontend/.DS_Store
 .tradingagents-biga/
 **/TradingAgentsStrategy_logs/
 
+# CodeGraph — machine-local index, don't commit
+.codegraph/
+
 # train sft
 train/
