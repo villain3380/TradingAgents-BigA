@@ -8,7 +8,7 @@ export type Action =
   | { type: "tool"; agent_id: string; tool: string; toolType: string; sources?: string[] }
   | { type: "stage_done"; agent_id?: string; stage?: string; name?: string; report?: string }
   | { type: "stats"; llm_calls: number; tool_calls: number; tokens_in: number; tokens_out: number; elapsed: number }
-  | { type: "done"; signal: string; elapsed?: number }
+  | { type: "done"; signal: string; elapsed?: number; report_path?: string }
   | { type: "error"; message: string };
 
 /** Mark the first non-done postStage as active — but ONLY while a run is in
@@ -47,6 +47,7 @@ export function makeInitial(analysts: AnalystMeta[], running = false): RunState 
     // No active stage before the user starts a run — nothing flashes.
     postStages: withActiveProgress(postStages, false),
     signal: null,
+    reportPath: null,
     error: null,
     running,
     stats: { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, elapsed: 0 },
@@ -111,7 +112,7 @@ export function reducer(state: RunState, action: Action): RunState {
 
     case "done":
       // All stages done — clear active flags.
-      return { ...state, signal: action.signal, running: false,
+      return { ...state, signal: action.signal, reportPath: action.report_path ?? null, running: false,
         postStages: state.postStages.map((p) => ({ ...p, active: false, done: true })) };
 
     case "error":

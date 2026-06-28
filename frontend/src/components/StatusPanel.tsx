@@ -4,6 +4,7 @@ interface Props {
   stats: { llm_calls: number; tool_calls: number; tokens_in: number; tokens_out: number; elapsed: number };
   postStages: PostStage[];
   signal: string | null;
+  reportPath: string | null;
   runId: string | null;
   cards: CardState[];
 }
@@ -23,7 +24,7 @@ interface Props {
  * already receives a "tool" SSE event per call, so summing card.tools.length
  * is the reliable count.
  */
-export function StatusPanel({ stats, postStages, signal, runId, cards }: Props) {
+export function StatusPanel({ stats, postStages, signal, reportPath, runId, cards }: Props) {
   const toolCount = cards.reduce((n, c) => n + c.tools.length, 0);
   // Always rendered — even before a run starts the framework is visible (stats
   // at 0, stages all ○ and not flashing). The "active" pulse only lights when
@@ -55,9 +56,15 @@ export function StatusPanel({ stats, postStages, signal, runId, cards }: Props) 
         </div>
       </div>
 
+      {signal && reportPath && (
+        <div className="rail-section">
+          <div className="rail-title">报告已保存</div>
+          <div className="report-path" title={reportPath}>{reportPath}</div>
+          <button className="btn-open-folder" onClick={() => fetch("/api/report/open-folder", { method: "POST" })}>📂 打开文件夹</button>
+        </div>
+      )}
       {signal && runId && (
         <div className="status-downloads">
-          <a className="btn-download" href={`/api/report/${runId}/md`} target="_blank" rel="noreferrer">📄 Markdown</a>
           <a className="btn-download" href={`/api/report/${runId}/pdf`} target="_blank" rel="noreferrer">📕 PDF</a>
         </div>
       )}

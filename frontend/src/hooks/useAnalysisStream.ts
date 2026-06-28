@@ -60,7 +60,7 @@ export function useAnalysisStream() {
         });
         es.addEventListener("done", (e) => {
           const d = JSON.parse((e as MessageEvent).data);
-          dispatch({ type: "done", signal: d.signal });
+          dispatch({ type: "done", signal: d.signal, report_path: d.report_path });
           es.close();
         });
         es.addEventListener("error", (e) => {

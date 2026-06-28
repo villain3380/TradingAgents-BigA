@@ -1,6 +1,6 @@
 """FastAPI server exposing the TradingAgents pipeline as SSE for the TS frontend.
 
-Runs as a separate process from Streamlit (``tradingagents-api``). Reuses the
+Runs as a separate process from Streamlit (``tradingagents-web``). Reuses the
 same ``TradingAgentsGraph`` core; only the streaming transport differs:
 - Streamlit path: ``graph.stream`` (sync, polled ProgressTracker)
 - API path:       ``graph.astream(stream_mode=["custom","updates"])`` (async, SSE)
@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import platform
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -212,7 +214,7 @@ class ProviderSelection(BaseModel):
 def save_provider_selection(provider: str, sel: ProviderSelection) -> dict:
     """Persist the user's model/base_url/api_key selection for one provider.
 
-    Single-user: writes straight to ~/.tradingagents/settings.json (home dir,
+    Single-user: writes straight to ~/.tradingagents-biga/settings.json (home dir,
     never committed). api_key is stored plaintext — same trust level as .env.
     """
     from tradingagents.settings import set_provider_selection
@@ -387,6 +389,16 @@ async def _run_graph(run_id: str, req: AnalyzeRequest) -> None:
                 await _push_stats()
 
         signal = graph.finalize_graph_run(ticker, req.trade_date, last_state)
+
+        # Auto-save Markdown report to ~/.tradingagents-biga/reports/
+        from web.pdf_export import generate_markdown
+        md_content = generate_markdown(last_state, ticker, req.trade_date, signal)
+        reports_dir = Path.home() / ".tradingagents-biga" / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        md_path = reports_dir / f"{ticker}_{req.trade_date}.md"
+        md_path.write_text(md_content, encoding="utf-8")
+        report_path = str(md_path)
+
         # Stash the completed report SEPARATELY from the run record, so it
         # survives the SSE teardown (the user downloads after the stream ends).
         _reports[run_id] = {
@@ -408,6 +420,7 @@ async def _run_graph(run_id: str, req: AnalyzeRequest) -> None:
                 "signal": signal,
                 "elapsed": round(time.time() - start_ts, 1),
                 "stats": s,
+                "report_path": report_path,
             }, ensure_ascii=False),
         })
         graph.close_graph_run()
@@ -536,6 +549,22 @@ def report_pdf(run_id: str):
     pdf_bytes = generate_pdf(rep["final_state"], rep["ticker"], rep["trade_date"], rep["signal"])
     return Response(pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{rep["ticker"]}_{rep["trade_date"]}.pdf"'})
+
+_REPORTS_DIR = str(Path.home() / ".tradingagents-biga" / "reports")
+
+@app.post("/api/report/open-folder")
+def open_reports_folder() -> dict:
+    """Open the reports directory in the OS file manager."""
+    try:
+        if platform.system() == "Windows":
+            os.startfile(_REPORTS_DIR)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", _REPORTS_DIR])
+        else:
+            subprocess.Popen(["xdg-open", _REPORTS_DIR])
+        return {"opened": _REPORTS_DIR}
+    except Exception as e:
+        return {"error": str(e), "path": _REPORTS_DIR}
 
 
 # In production, serve the built TS frontend from the same origin.

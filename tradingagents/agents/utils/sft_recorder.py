@@ -1,7 +1,7 @@
 """SFT data recorder — captures complete agent I/O for fine-tuning dataset generation.
 
 Each analysis task (one ``propagate`` call) produces two files under
-``~/.tradingagents/sft/``:
+``~/.tradingagents-biga/sft/``:
 - ``{ticker}_{date}_{timestamp}.jsonl`` — the training data
 - ``{ticker}_{date}_{timestamp}_debug.log`` — comprehensive debug log
 
@@ -159,7 +159,7 @@ class SFTRecorder:
         self._record_count = 0
 
         # Open debug log alongside the JSONL output.
-        out_dir = Path.home() / ".tradingagents" / "sft"
+        out_dir = Path.home() / ".tradingagents-biga" / "sft"
         out_dir.mkdir(parents=True, exist_ok=True)
         debug_path = out_dir / f"{ticker}_{trade_date}_{self.timestamp}_debug.log"
         self._debug_path = str(debug_path)
@@ -303,7 +303,7 @@ class SFTRecorder:
             return None
 
         try:
-            out_dir = Path.home() / ".tradingagents" / "sft"
+            out_dir = Path.home() / ".tradingagents-biga" / "sft"
             out_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{self.ticker}_{self.trade_date}_{self.timestamp}.jsonl"
             path = out_dir / fname
@@ -381,7 +381,7 @@ def _canary(msg: str) -> None:
     reached — and if so, how far it gets before failing.
     """
     try:
-        p = Path.home() / ".tradingagents" / "sft" / "_canary.log"
+        p = Path.home() / ".tradingagents-biga" / "sft" / "_canary.log"
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "a", encoding="utf-8") as f:
             f.write(f"[{_now()}] [{os.getpid()}] {msg}\n")

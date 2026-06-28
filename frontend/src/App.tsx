@@ -62,6 +62,7 @@ export default function App() {
           stats={state.stats}
           postStages={state.postStages}
           signal={state.signal}
+          reportPath={state.reportPath}
           runId={runId}
           cards={state.cards}
         />

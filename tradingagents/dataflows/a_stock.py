@@ -469,7 +469,7 @@ def _load_ohlcv_astock(symbol: str, curr_date: str) -> pd.DataFrame:
     code = _normalize_ticker(symbol)
     config = get_config()
     cache_dir = config.get(
-        "data_cache_dir", os.path.expanduser("~/.tradingagents/cache")
+        "data_cache_dir", os.path.expanduser("~/.tradingagents-biga/cache")
     )
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -1511,7 +1511,7 @@ def _northbound_cache_path() -> str:
 
     config = get_config()
     cache_dir = config.get(
-        "data_cache_dir", os.path.expanduser("~/.tradingagents/cache")
+        "data_cache_dir", os.path.expanduser("~/.tradingagents-biga/cache")
     )
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, "northbound_daily.csv")

@@ -36,6 +36,7 @@ export interface RunState {
   cards: CardState[];
   postStages: PostStage[];
   signal: string | null;
+  reportPath: string | null;
   error: string | null;
   running: boolean;
   stats: { llm_calls: number; tool_calls: number; tokens_in: number; tokens_out: number; elapsed: number };

@@ -172,7 +172,7 @@ class TestRecorderStatusFields:
         assert rec.records[0]["degradation_reason"] == ""
 
     def test_flush_writes_status_into_jsonl(self, tmp_path, monkeypatch):
-        # Redirect SFT output dir into a tmp path so we don't pollute ~/.tradingagents
+        # Redirect SFT output dir into a tmp path so we don't pollute ~/.tradingagents-biga
         monkeypatch.setattr(sft_mod.Path, "home", lambda: tmp_path)
         rec = sft_mod.SFTRecorder("TEST", "2026-06-20")
         rec.record("market_analyst", "技术面分析师", [],

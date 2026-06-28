@@ -243,9 +243,9 @@ pnpm-debug.log*
 frontend/.DS_Store
 *.tsbuildinfo
 
-# ── TradingAgents local runtime data (~/.tradingagents is user-home, but in case
+# ── TradingAgents local runtime data (~/.tradingagents-biga is user-home, but in case
 #    a dev points TRADINGAGENTS_*_DIR at a project-local path, never commit it) ──
-.tradingagents/
+.tradingagents-biga/
 **/TradingAgentsStrategy_logs/
 
 # train sft

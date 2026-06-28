@@ -1,6 +1,6 @@
 import os
 
-_TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
+_TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents-biga")
 
 DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
@@ -12,9 +12,9 @@ DEFAULT_CONFIG = {
     # Pending entries are never pruned. None disables rotation entirely.
     "memory_log_max_entries": None,
     # LLM settings
-    "llm_provider": "openai",
-    "deep_think_llm": "gpt-5.4",
-    "quick_think_llm": "gpt-5.4-mini",
+    "llm_provider": "deepseek",
+    "deep_think_llm": "deepseek-v4-pro",
+    "quick_think_llm": "deepseek-v4-flash",
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
     # The CLI overrides this per provider when the user picks one. Keeping a
@@ -41,7 +41,7 @@ DEFAULT_CONFIG = {
     # but fan-in to the Quality Gate is a barrier — one slow/stuck analyst
     # would block them all. This bounds a single analyst; on timeout it
     # degrades to a partial report instead of hanging the pipeline. None = off.
-    "react_loop_timeout": 300,
+    "react_loop_timeout": 600,
     # P8: max tokens a single downstream prompt (bull/bear/risk debators/
     # quality gate) may occupy before it is compressed. Under the budget the
     # prompt is passed through untouched (no truncation, no info loss). Only
@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
     # Internal agent debate stays in English for reasoning quality
     "output_language": "Chinese",
     # Debate and discussion settings
-    # SFT data recording: save every agent's full I/O to ~/.tradingagents/sft/*.jsonl
+    # SFT data recording: save every agent's full I/O to ~/.tradingagents-biga/sft/*.jsonl
     "sft_record": True,
     # Debate and discussion settings
     "max_debate_rounds": 1,

@@ -36,6 +36,9 @@ dependencies = [
     "fpdf2>=2.8.6",
     "python-dotenv>=1.1.0",
     "mootdx>=0.10.0",
+    "fastapi>=0.115.0",
+    "sse-starlette>=2.1.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.urls]
@@ -46,17 +49,9 @@ Upstream = "https://github.com/TauricResearch/TradingAgents"
 
 [project.optional-dependencies]
 google = ["langchain-google-genai>=4.0.0"]
-# FastAPI + SSE server + TS frontend (the streaming web UI). Optional: the
-# classic Streamlit UI needs none of these.
-api = [
-    "fastapi>=0.115.0",
-    "sse-starlette>=2.1.0",
-    "uvicorn>=0.30.0",
-]
-
 [project.scripts]
-tradingagents = "cli.main:app"
-tradingagents-api = "web.api.launch:main"
+tradingagents-cli = "cli.main:app"
+tradingagents-web = "web.api.launch:main"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*", "web*"]

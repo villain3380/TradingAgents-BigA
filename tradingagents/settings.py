@@ -2,13 +2,13 @@
 
 Stores per-provider LLM selections (which quick/deep model, optional base_url
 override) and the default provider, in a JSON file under the user's
-``~/.tradingagents/`` dir. Single-user by design: one file, one writer, no
+``~/.tradingagents-biga/`` dir. Single-user by design: one file, one writer, no
 locking — see the project's "single-user, no auth" stance.
 
 API keys are deliberately NOT stored here — they stay in ``.env`` (one env var
 per provider, see llm_clients/openai_client.py). This file only holds
 non-sensitive preferences, so it could be shared/committed if a user wanted
-(though ~/.tradingagents is user-local, not the repo).
+(though ~/.tradingagents-biga is user-local, not the repo).
 
 Step 1 scope: persistence of model/base_url selections + default provider.
 The provider->api-key mapping is still hardcoded in openai_client.py; custom
@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 def settings_path() -> Path:
     """Return the settings.json path under the TradingAgents home dir."""
-    home = os.path.join(os.path.expanduser("~"), ".tradingagents")
+    home = os.path.join(os.path.expanduser("~"), ".tradingagents-biga")
     return Path(home) / "settings.json"
 
 
@@ -89,7 +89,7 @@ def set_provider_selection(
     Only writes the fields that are not None (so a caller can update just the
     quick model without clobbering the deep model). Pass ``""`` to clear.
     ``api_key`` is stored plaintext in settings.json — this file lives in the
-    user's home dir (~/.tradingagents/) and is never committed to the repo, so
+    user's home dir (~/.tradingagents-biga/) and is never committed to the repo, so
     it's no less safe than .env. The .env env-var fallback still works for
     users who prefer that.
     """
