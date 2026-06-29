@@ -67,10 +67,10 @@ body {
 .summary-value.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
 .summary-hint { color: var(--accent); font-size: 0.72rem; margin-top: 0.4rem; text-align: center; }
 
-/* Right rail: retrieval sources */
-.right-rail {
+/* Right rail wrapper: PromptEditor + sources */
+.right-rail-wrapper {
   flex-shrink: 0;
-  width: 220px;
+  width: 260px;
   align-self: flex-start;
   position: sticky;
   top: 1.5rem;
@@ -79,6 +79,18 @@ body {
   gap: 0.75rem;
   max-height: calc(100vh - 3rem);
   overflow-y: auto;
+  overflow-x: hidden;
+}
+.right-rail-wrapper .prompt-editor {
+  flex-shrink: 0;          /* fixed size — won't squeeze sources */
+}
+/* Right rail: retrieval sources */
+.right-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;                  /* grow below PromptEditor */
+  min-height: 0;
 }
 .rail-section {
   background: var(--panel);
@@ -144,6 +156,85 @@ body {
   width: 100%;
 }
 .btn-open-folder:hover { background: var(--panel-2); border-color: var(--accent); }
+
+/* Prompt editor (right rail, above sources) */
+.prompt-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.prompt-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-align: left;
+}
+.prompt-item:hover { background: var(--panel-2); }
+.prompt-item.selected { background: var(--accent); color: #fff; }
+.prompt-icon { font-size: 0.85rem; }
+.prompt-label { flex: 1; }
+.prompt-var-badge {
+  font-size: 0.65rem;
+  background: var(--panel-2);
+  color: var(--muted);
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+}
+.prompt-detail { display: flex; flex-direction: column; gap: 0.4rem; }
+.prompt-detail-header { display: flex; flex-direction: column; gap: 0.15rem; }
+.prompt-desc { font-size: 0.72rem; color: var(--muted); }
+.prompt-var-hint { font-size: 0.68rem; color: #e8a010; }
+.prompt-textarea {
+  width: 100%;
+  min-height: 180px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--panel-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-family: "Consolas", "Source Code Pro", monospace;
+  padding: 0.5rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+.prompt-textarea:focus { outline: none; border-color: var(--accent); }
+.prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.btn-prompt-save, .btn-prompt-exit, .btn-prompt-reset {
+  padding: 0.25rem 0.6rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+.btn-prompt-save { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-prompt-save:hover { opacity: 0.85; }
+.btn-prompt-exit { background: none; color: var(--muted); }
+.btn-prompt-exit:hover { color: var(--text); border-color: var(--muted); }
+.btn-prompt-reset { background: none; color: var(--muted); font-size: 0.68rem; padding: 0.2rem 0.4rem; }
+.btn-prompt-reset:hover { color: #e8a010; border-color: #e8a010; }
+.prompt-msg { font-size: 0.75rem; color: var(--accent); }
 
 /* Sources list (right rail) */
 .sources-empty { color: var(--muted); font-size: 0.78rem; line-height: 1.5; }
@@ -587,4 +678,29 @@ body {
 .divider-grip { font-size: 0.7rem; letter-spacing: 2px; }
 .pane-title { color: var(--muted); font-size: 0.72rem; padding: 0.6rem 0 0.3rem; flex-shrink: 0; }
 .modal-tools-scroll { overflow-y: auto; flex: 1; padding-bottom: 0.75rem; }
+
+/* Custom scrollbar — thin, hidden until hover, semi-transparent */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.3s;
+}
+:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
 .modal-body.full { padding: 1.25rem; }

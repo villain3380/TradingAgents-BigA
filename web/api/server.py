@@ -567,6 +567,52 @@ def open_reports_folder() -> dict:
         return {"error": str(e), "path": _REPORTS_DIR}
 
 
+# ── Prompt management ──────────────────────────────────────────────────────────
+
+@app.get("/api/prompts")
+def list_prompts() -> list[dict]:
+    """Return prompt manifest (name, label, icon, variables, description)."""
+    from tradingagents.prompts import list_prompts as _list
+    return _list()
+
+
+@app.get("/api/prompts/{name}")
+def get_prompt_content(name: str):
+    """Read the current content of a single prompt."""
+    from fastapi.responses import PlainTextResponse
+    from tradingagents.prompts import get_prompt as _get, get_default_prompt
+    content = _get(name)
+    if not content:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
+    return {"name": name, "content": content, "default": get_default_prompt(name)}
+
+
+class PromptUpdate(BaseModel):
+    content: str
+
+
+@app.put("/api/prompts/{name}")
+def save_prompt_content(name: str, body: PromptUpdate) -> dict:
+    """Save a modified prompt back to its .md file."""
+    from tradingagents.prompts import save_prompt
+    try:
+        save_prompt(name, body.content)
+        return {"saved": name}
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
+
+
+@app.post("/api/prompts/{name}/reset")
+def reset_prompt_to_default(name: str) -> dict:
+    """Restore a prompt to its built-in default."""
+    from tradingagents.prompts import reset_prompt
+    try:
+        reset_prompt(name)
+        return {"reset": name}
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
+
+
 # In production, serve the built TS frontend from the same origin.
 @app.on_event("startup")
 def _mount_static() -> None:

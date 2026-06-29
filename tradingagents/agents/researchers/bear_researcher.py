@@ -1,4 +1,6 @@
 
+from tradingagents.prompts import get_prompt
+
 
 def create_bear_researcher(llm):
     async def bear_node(state) -> dict:
@@ -16,39 +18,19 @@ def create_bear_researcher(llm):
         lockup_report = state.get("lockup_report", "")
         data_quality_summary = state.get("data_quality_summary", "")
 
-        prompt = f"""You are a Bear Analyst making the case against investing in this A-share (China mainland) stock. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators unique to the Chinese market. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
-
-A-Share Bear Framework — prioritize these China-specific risk factors:
-- Policy Headwinds: Sudden regulatory crackdowns (e.g. industry rectification, antitrust), CSRC window guidance (窗口指导), sector-wide trading restrictions, or political risk signals
-- Lockup & Insider Selling: Upcoming lockup expiry dates with large overhang, controlling shareholders in pre-disclosure reduction windows, equity pledge liquidation risk
-- Hot Money Withdrawal (游资撤退): Volume divergence after limit-ups (放量滞涨), declining limit-up board count (连板断裂), sector rotation moving away from this theme
-- Valuation Bubble: PE far above 30x A-stock growth anchor with EPS unable to digest within 3 years, PEG > 2 indicating overpriced growth, retail-driven speculative premium
-- T+1 Trap: After a sharp rally, buyers today cannot exit until tomorrow — if sentiment reverses overnight or a gap-down opens, losses are locked in
-- Northbound Retreat: Net outflow from Stock Connect signals foreign institutions reducing exposure
-
-General bear points:
-- Risks and Challenges: Market saturation, financial instability, or macroeconomic threats
-- Competitive Weaknesses: Weaker market positioning, declining innovation, or competitor threats
-- Negative Indicators: Evidence from financial data, market trends, or adverse news
-- Bull Counterpoints: Expose over-optimistic assumptions with specific data
-- Engagement: Present your argument conversationally, directly engaging with the bull analyst's points
-
-Resources available:
-Market research report: {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest news report: {news_report}
-Company fundamentals report: {fundamentals_report}
-Policy analysis report: {policy_report}
-Hot money / capital flow report: {hot_money_report}
-Lockup expiry / insider reduction report: {lockup_report}
-Data quality assessment: {data_quality_summary}
-Conversation history of the debate: {history}
-Last bull argument: {current_response}
-
-⚠️ If the data quality assessment flags any report as low-confidence (grade C/D/F), reduce your reliance on that report and note the data limitation in your argument.
-
-Deliver a compelling bear argument grounded in A-share market realities. Refute the bull's claims and demonstrate the risks of investing in this stock within the Chinese regulatory and market structure.
-"""
+        template = get_prompt("bear_researcher")
+        prompt = template.format(
+            market_research_report=market_research_report,
+            sentiment_report=sentiment_report,
+            news_report=news_report,
+            fundamentals_report=fundamentals_report,
+            policy_report=policy_report,
+            hot_money_report=hot_money_report,
+            lockup_report=lockup_report,
+            data_quality_summary=data_quality_summary,
+            history=history,
+            current_response=current_response,
+        )
 
         from tradingagents.agents.utils.agent_utils import stream_invoke
         content = await stream_invoke(llm, prompt, "bear")

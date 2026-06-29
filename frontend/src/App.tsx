@@ -4,6 +4,7 @@ import { listAnalysts, listProviders } from "./api/client";
 import type { AnalystMeta, LlmConfig, ProviderInfo } from "./api/types";
 import { Controls } from "./components/Controls";
 import { Sidebar } from "./components/Sidebar";
+import { PromptEditor } from "./components/PromptEditor";
 import { StatusPanel } from "./components/StatusPanel";
 import { RightRail } from "./components/RightRail";
 import { AnalystGrid } from "./components/AnalystGrid";
@@ -86,7 +87,10 @@ export default function App() {
         {state.cards.length > 0 && <AnalystGrid cards={state.cards} onExpand={setExpandedKey} />}
       </main>
 
-      <RightRail cards={state.cards} />
+      <div className="right-rail-wrapper">
+        <PromptEditor />
+        <RightRail cards={state.cards} />
+      </div>
 
       <CardModal
         card={state.cards.find((c) => c.key === expandedKey)}

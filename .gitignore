@@ -253,3 +253,5 @@ frontend/.DS_Store
 
 # train sft
 train/
+train/tradingagents_data
+train/unsloth_compiled_cache

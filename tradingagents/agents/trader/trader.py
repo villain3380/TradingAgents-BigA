@@ -12,6 +12,7 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from tradingagents.prompts import get_prompt
 
 
 def create_trader(llm):
@@ -37,34 +38,27 @@ def create_trader(llm):
             astock_context_parts.append(f"Lockup Expiry / Insider Reduction Report:\n{lockup_report}")
         astock_context = "\n\n".join(astock_context_parts)
 
+        template = get_prompt("trader")
+        full_content = template.format(
+            instrument_context=instrument_context,
+            investment_plan=investment_plan,
+            astock_context=astock_context,
+        )
+
+        # Split combined template into system and user messages
+        parts = full_content.split("\n\n---\n\n", 1)
+        system_content = parts[0] if len(parts) >= 1 else ""
+        user_content = parts[1] if len(parts) == 2 else ""
+        user_content = user_content + get_language_instruction()
+
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are a trading agent specialising in A-share (China mainland) stocks. "
-                    "Translate the Research Manager's investment plan into a concrete, executable "
-                    "transaction proposal. You must factor in A-stock trading constraints:\n"
-                    "- T+1 settlement: shares bought today cannot be sold until the next trading day\n"
-                    "- Daily price limits: main board ±10%, STAR/ChiNext ±20%, ST stocks ±5%\n"
-                    "- Minimum lot: 100 shares (main board) or 200 shares (STAR/ChiNext)\n"
-                    "- Trading hours: 09:30-11:30, 13:00-15:00 Beijing time\n"
-                    "Anchor your reasoning in the analysts' reports and the research plan. "
-                    "Be specific about entry price, stop loss, and position sizing. "
-                    "（以上参数仅供技术研究参考，不构成投资建议）"
-                ),
+                "content": system_content,
             },
             {
                 "role": "user",
-                "content": (
-                    f"Based on a comprehensive analysis by a team of analysts (including market, "
-                    f"sentiment, news, fundamentals, policy, capital flow, and lockup/reduction "
-                    f"specialists), here is an investment plan for {company_name}.\n\n"
-                    f"{instrument_context}\n\n"
-                    f"Proposed Investment Plan:\n{investment_plan}\n\n"
-                    + (f"Additional A-Stock Analyst Context:\n{astock_context}\n\n" if astock_context else "")
-                    + "Leverage these insights to craft a precise transaction proposal."
-                    + get_language_instruction()
-                ),
+                "content": user_content,
             },
         ]
 

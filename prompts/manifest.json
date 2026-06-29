@@ -1,0 +1,19 @@
+{
+  "prompts": [
+    {"name": "market_analyst", "label": "市场分析师", "icon": "🏪", "variables": false, "description": "K线形态、技术指标、量价分析"},
+    {"name": "social_media_analyst", "label": "舆情分析师", "icon": "💬", "variables": false, "description": "社交媒体情绪、散户讨论热度"},
+    {"name": "news_analyst", "label": "新闻分析师", "icon": "📰", "variables": false, "description": "行业新闻、公告、宏观事件"},
+    {"name": "fundamentals_analyst", "label": "基本面分析师", "icon": "📊", "variables": false, "description": "财报三表、盈利能力、估值"},
+    {"name": "policy_analyst", "label": "政策分析师", "icon": "🏛️", "variables": false, "description": "监管政策、产业政策、窗口指导"},
+    {"name": "hot_money_tracker", "label": "游资追踪师", "icon": "🔥", "variables": false, "description": "龙虎榜、大单流向、主力资金动态"},
+    {"name": "lockup_watcher", "label": "解禁监控师", "icon": "🔓", "variables": false, "description": "限售股解禁、大股东减持、股权质押"},
+    {"name": "bull_researcher", "label": "多方研究员", "icon": "🐂", "variables": true, "description": "多方辩论 — 构建看多论据"},
+    {"name": "bear_researcher", "label": "空方研究员", "icon": "🐻", "variables": true, "description": "空方辩论 — 构建看空论据"},
+    {"name": "aggressive_debator", "label": "激进风控", "icon": "🔥", "variables": true, "description": "激进风险视角 — 高回报机会"},
+    {"name": "conservative_debator", "label": "保守风控", "icon": "🛡️", "variables": true, "description": "保守风险视角 — 资产保护"},
+    {"name": "neutral_debator", "label": "中立风控", "icon": "⚖️", "variables": true, "description": "中立风险视角 — 平衡评估"},
+    {"name": "research_manager", "label": "研究总管", "icon": "👔", "variables": true, "description": "综合辩论 → 投资计划"},
+    {"name": "trader", "label": "交易员", "icon": "💹", "variables": true, "description": "投资计划 → 交易方案"},
+    {"name": "portfolio_manager", "label": "组合经理", "icon": "📋", "variables": true, "description": "最终决策 — Buy/Hold/Sell"}
+  ]
+}
