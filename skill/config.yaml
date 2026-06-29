@@ -1,0 +1,15 @@
+# TradingAgents-BigA Skill Configuration
+# Copy this entire directory to ~/.hermes/skills/tradingagents-biga/
+
+name: tradingagents-biga
+version: "0.1.0"
+description: "A-share multi-agent investment research framework — 7 analysts + debate + risk"
+
+# Path to the TradingAgents-BigA repo (adjust if cloned elsewhere)
+repo_path: null  # null = auto-detect from skill location
+
+# Default LLM settings (overridable via ~/.tradingagents-biga/settings.json)
+defaults:
+  provider: deepseek
+  quick_model: deepseek-v4-flash
+  deep_model: deepseek-v4-pro

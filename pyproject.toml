@@ -52,9 +52,10 @@ google = ["langchain-google-genai>=4.0.0"]
 [project.scripts]
 tradingagents-cli = "cli.main:app"
 tradingagents-web = "web.api.launch:main"
+tradingagents-mcp = "mcp_server.main:main"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*", "web*"]
+include = ["tradingagents*", "cli*", "web*", "mcp_server*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]

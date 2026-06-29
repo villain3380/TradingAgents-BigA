@@ -255,3 +255,6 @@ frontend/.DS_Store
 train/
 train/tradingagents_data
 train/unsloth_compiled_cache
+
+# 接入Hermes
+mcp_server/

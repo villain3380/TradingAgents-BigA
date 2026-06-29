@@ -31,6 +31,8 @@
 - [快速开始](#快速开始)
   - [环境准备](#环境准备)
   - [启动](#启动)
+- [接入Hermes](#接入hermes)
+  - [更建议用kanban](#更建议用kanban)
 - [架构概览](#架构概览)
 - [7 个 Analyst 角色（A 股适配）](#7-个-analyst-角色a-股适配)
 - [数据源](#数据源)
@@ -69,10 +71,26 @@ cd frontend && npm run dev
 
 ---
 
+## 接入Hermes
+
+在 `~/.hermes/skills` 新建 `tradingagents-biga` 文件夹，把本项目 `skill` 文件夹里面的文件粘贴进刚刚创建的 `~/.hermes/skills/tradingagents-biga` 文件夹
+
+启动 Hermes，让它使用 tradingagents-biga 技能分析某个股票，5~8 分钟后调研结束 Hermes 收到调研报告路径会自己读取并总结向你汇报
+
+### 更建议用kanban
+
+直接给 Hermes 发：`/kanban create 调研股票中际旭创300308 --assignee default`，让 Hermes 使用 Hermes kanban 功能，将调研任务创建为 kanban 任务，不影响当前对话，任务完成会收到通知，命令行输入 `hermes dashboard` 在左侧栏往下滚动找到 kanban 可查看任务状态
+
+<p align="center">
+  <img src="assets/hermes_kanban.png" alt="Hermes kanban" width="50%">
+</p>
+
+---
+
 ## 架构概览
 
 <p align="center">
-  <img src="assets/structure.png" alt="TradingAgents-BigA Architecture" width="90%">
+  <img src="assets/structure.png" alt="TradingAgents-BigA Architecture" width="70%">
 </p>
 
 **双 LLM 设计**：
